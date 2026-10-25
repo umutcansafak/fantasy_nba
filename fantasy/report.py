@@ -12,7 +12,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from . import store
+from . import league_page, store
 from .config import CATEGORIES, ROOT
 from .projection import (Simulator, actual_totals, compare, next_matchup_period, opponent_of,
                          with_actuals)
@@ -208,7 +208,22 @@ details{margin:12px 0}summary{cursor:pointer;color:var(--ink2)}
 th,td{text-align:left;padding:6px 10px;border-bottom:1px solid var(--line);white-space:nowrap}
 th{color:var(--ink2);font-weight:600}td:nth-child(n+3){font-variant-numeric:tabular-nums}
 footer{margin-top:48px;color:var(--muted);font-size:13px}
+nav.top{display:flex;gap:16px;margin-bottom:16px;font-size:14px}nav.top a{color:var(--ink2)}nav.top a.on{color:var(--ink);font-weight:600}
 """
+
+
+def report_weeks(meta) -> list[tuple[int, str]]:
+    """The live week (+ next week's preview), or just the coming week once the live one is over."""
+    cur, nxt = meta.get("current_matchup_period"), next_matchup_period(meta)
+    if cur and nxt == cur:
+        return [(cur, "This week")] + ([(cur + 1, "Next week")] if cur + 1 in meta["matchup_periods"] else [])
+    return [(nxt, "Next week")]
+
+
+def nav(active: str) -> str:
+    links = (("index", "index.html", "My matchup"), ("league", "league.html", "League view"))
+    return '<nav class="top">' + "".join(
+        f'<a href="{href}"{" class=on" if key == active else ""}>{label}</a>' for key, href, label in links) + "</nav>"
 
 
 def build(out: Path, n_sims: int = 5000, n_fa: int = 20) -> Path:
@@ -218,20 +233,14 @@ def build(out: Path, n_sims: int = 5000, n_fa: int = 20) -> Path:
     me_id = meta.get("team_id")
     if me_id is None:
         raise SystemExit("TEAM_ID is not set.")
-    cur = meta.get("current_matchup_period")
-    nxt = next_matchup_period(meta)
-    sections = []
-    if cur and nxt == cur:
-        sections.append(section(sim, snap, me_id, cur, "This week", n_fa))
-        if cur + 1 in meta["matchup_periods"]:
-            sections.append(section(sim, snap, me_id, cur + 1, "Next week", n_fa))
-    else:  # Sunday after the last games, or before the season: plan the coming week
-        sections.append(section(sim, snap, me_id, nxt, "Next week", n_fa))
+    weeks = report_weeks(meta)
+    sections = [section(sim, snap, me_id, mp, title, n_fa) for mp, title in weeks]
     updated = datetime.fromisoformat(meta["collected_at"]).strftime("%a %b %d, %Y %H:%M ET")
     page = f"""<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>{esc(meta.get('league_name') or 'Fantasy')} · Matchup report</title><style>{CSS}</style></head>
 <body><main>
+{nav('index')}
 <h1>{esc(meta.get('league_name') or 'Fantasy NBA')} matchup report</h1>
 <p class="muted">Updated {updated} · {n_sims:,} simulated weeks from players' real box scores</p>
 {''.join(sections)}
@@ -242,6 +251,9 @@ by value within ESPN slot limits, and skip players listed OUT. Ties count as hal
     out.mkdir(parents=True, exist_ok=True)
     path = out / "index.html"
     path.write_text(page)
+    league_weeks = [w for w in (league_page.week_data(sim, snap, mp, title) for mp, title in weeks) if w]
+    (out / "league.html").write_text(league_page.render(
+        esc(meta.get("league_name") or "Fantasy NBA"), updated, me_id, snap["teams"], league_weeks, CSS, nav("league")))
     return path
 
 
