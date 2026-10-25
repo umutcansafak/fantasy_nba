@@ -20,14 +20,15 @@ DATA_ROOT = Path(os.getenv("FANTASY_DATA", store.DATA_DIR))
 st.set_page_config(page_title="Fantasy NBA matchup", layout="wide")
 
 
-@st.cache_data(show_spinner=False)
-def load(day):
+@st.cache_data(show_spinner=False, max_entries=5)
+def load(day, version=None):
+    """`version` (meta.json mtime) busts the cache when a day's snapshot is re-collected."""
     return store.load_snapshot(day, root=DATA_ROOT)
 
 
-@st.cache_resource(show_spinner="Building player pools…")
-def simulator(day, demo, n_sims):
-    snap = load(day)
+@st.cache_resource(show_spinner="Building player pools…", max_entries=3)
+def simulator(day, version, demo, n_sims):
+    snap = load(day, version)
     return Simulator(demo_league(snap) if demo else snap, n_sims=n_sims)
 
 
@@ -84,12 +85,13 @@ if not days:
 with st.sidebar:
     st.header("Setup")
     day = st.selectbox("Snapshot", days[::-1], help="Data collected on this day (ET)")
-    snap = load(day)
+    version = (store.snapshot_dir(day, DATA_ROOT) / "meta.json").stat().st_mtime
+    snap = load(day, version)
     demo = snap["rosters"].empty
     if demo:
         st.info("No league in this snapshot (public pool). Showing a demo league of two drafted teams.")
     n_sims = st.select_slider("Simulations", [1000, 2000, 5000, 10000], value=5000)
-    sim = simulator(day, demo, n_sims)
+    sim = simulator(day, version, demo, n_sims)
     s = sim.snap
     teams = s["teams"].set_index("team_id")["name"].to_dict()
     my_default = s["meta"].get("team_id") or next(iter(teams))
