@@ -34,6 +34,12 @@ needed; if it ever goes private, add `ESPN_S2` and `SWID` as repo secrets. `.git
 10:00 UTC and commits the new snapshot; `git pull` before opening the dashboard.
 Run it once by hand from the Actions tab (“Run workflow”).
 
+## Shared report (GitHub Pages)
+After collecting, the same workflow runs `python -m fantasy.report` and publishes
+`site/index.html` to https://umutcansafak.github.io/fantasy_nba/: my matchup for
+the live week (ESPN totals so far + simulated remaining days) and next week's
+preview, with free-agent pickups. Build it locally with `python -m fantasy.report`.
+
 ## How the projection works (`fantasy/projection.py`)
 - Week = the league's matchup period (scoring period = one day). On Sunday the default is next week.
 - Each day, players whose NBA team plays are ranked by a 9-cat z-score value

@@ -9,7 +9,8 @@ import streamlit as st
 from fantasy import store
 from fantasy.config import CATEGORIES
 from fantasy.demo import demo_league
-from fantasy.projection import Simulator, compare, next_matchup_period, opponent_of
+from fantasy.projection import (Simulator, actual_totals, compare, next_matchup_period, opponent_of,
+                                with_actuals)
 from fantasy.recommend import recommend, weakest_player
 
 # Categorical slots 1-2 of the validated reference palette (me = blue, opponent = orange).
@@ -104,7 +105,7 @@ with st.sidebar:
     opp_id = st.selectbox("Opponent", others, index=others.index(scheduled) if scheduled in others else 0,
                           format_func=lambda t: teams[t] + ("  (scheduled)" if t == scheduled else ""))
     remaining = st.toggle("Only days not yet played", value=True,
-                          help="For the current week, simulate today onward (games already played are not added).")
+                          help="For the current week: totals ESPN already recorded + simulated games from today on.")
 
 periods = sim.periods_for(mp, remaining_only=remaining)
 if not periods:
@@ -113,12 +114,17 @@ if not periods:
 
 me = sim.project_team(me_id, sim.roster_of(me_id), periods, 0)
 opp = sim.project_team(opp_id, sim.roster_of(opp_id), periods, 1)
+live = remaining and mp == s["meta"].get("current_matchup_period")
+if live:
+    me = with_actuals(me, actual_totals(s, me_id, mp), sim.cat_ids)
+    opp = with_actuals(opp, actual_totals(s, opp_id, mp), sim.cat_ids)
 table, overall = compare(me, opp, sim.cat_ids)
 me_name, opp_name = teams[me_id], teams[opp_id]
 
 st.title(f"{me_name} vs {opp_name}")
 st.caption(f"Week {mp} · {sim.dates[periods[0]]:%a %b %d} – {sim.dates[periods[-1]]:%a %b %d} · "
-           f"{n_sims:,} simulated weeks · data from {day}")
+           f"{n_sims:,} simulated weeks · data from {day}"
+           + (" · includes totals already played this week" if live else ""))
 
 k = st.columns(4)
 k[0].metric("Expected categories won", f"{overall['expected_cats_won']:.1f} / {len(table)}")

@@ -13,7 +13,7 @@ from dataclasses import dataclass, field
 import numpy as np
 import pandas as pd
 
-from .config import CATEGORIES, RAW_STATS
+from .config import CATEGORIES, RAW_STATS, STAT_IDS
 from .lineup import active_slots, fill_lineup
 from .nba_schedule import games_by_team_period, period_dates
 
@@ -152,12 +152,7 @@ class Simulator:
             idx = rng.choice(len(games), size=(self.n_sims, len(g)), p=w)
             played = rng.random((self.n_sims, len(g))) < g["play_prob"].to_numpy()
             totals += (games[idx] * played[..., None]).sum(axis=1)
-        samples = pd.DataFrame(totals, columns=RAW_STATS)
-        for cid in self.cat_ids:
-            cat = CATEGORIES[cid]
-            if "ratio" in cat:
-                made, att = cat["ratio"]
-                samples[cat["name"]] = samples[made] / samples[att].replace(0, np.nan)
+        samples = add_ratio_categories(pd.DataFrame(totals, columns=RAW_STATS), self.cat_ids)
         summary = (starts.groupby("player_id").agg(starts=("period", "size"), exp_games=("play_prob", "sum"))
                    .join(self.players[["name", "pro_team", "injury_status"]]).reset_index())
         all_games = games_by_team_period(self.pro, periods).sum(axis=1)
@@ -168,13 +163,52 @@ class Simulator:
         r = self.snap["rosters"]
         return r[r["team_id"] == team_id][["player_id", "lineup_slot"]]
 
+    def first_open_period(self) -> int:
+        """Scoring period of the snapshot's calendar day (ET); earlier days are already in ESPN's totals."""
+        collected = self.meta.get("collected_at")
+        if collected:
+            day = pd.Timestamp(collected).date()
+            for p, d in self.dates.items():
+                if d == day:
+                    return p
+        return self.meta.get("current_scoring_period") or 0
+
     def periods_for(self, matchup_period: int, remaining_only: bool = True) -> list[int]:
         periods = [int(p) for p in self.meta["matchup_periods"][matchup_period]]
-        cur = self.meta.get("current_scoring_period") or 0
+        cur = self.first_open_period()
         if remaining_only:
             # today's games may not have started; keep today in the window
             periods = [p for p in periods if p >= cur]
         return periods
+
+
+def add_ratio_categories(samples: pd.DataFrame, cat_ids: list[str]) -> pd.DataFrame:
+    for cid in cat_ids:
+        cat = CATEGORIES[cid]
+        if "ratio" in cat:
+            made, att = cat["ratio"]
+            samples[cat["name"]] = samples[made] / samples[att].replace(0, np.nan)
+    return samples
+
+
+def actual_totals(snap: dict, team_id: int, matchup_period: int) -> dict[str, float]:
+    """Raw stat totals ESPN has already recorded for a team in a matchup (by stat name)."""
+    m = snap.get("matchups")
+    if m is None or m.empty:
+        return {}
+    rows = m[(m["matchup_period"] == matchup_period) & (m["team_id"] == team_id)].dropna(subset=["stat_id"])
+    by_id = dict(zip(rows["stat_id"].astype(str), rows["score"].astype(float)))
+    return {name: by_id[STAT_IDS[name]] for name in RAW_STATS if STAT_IDS[name] in by_id}
+
+
+def with_actuals(proj: TeamProjection, actual: dict[str, float], cat_ids: list[str]) -> TeamProjection:
+    """Add already-played totals to every simulated rest-of-week, then recompute percentages."""
+    if not actual:
+        return proj
+    samples = proj.samples[RAW_STATS].copy()
+    for name, value in actual.items():
+        samples[name] += value
+    return TeamProjection(proj.team_id, add_ratio_categories(samples, cat_ids), proj.starts, proj.daily)
 
 
 # ---------------------------------------------------------------- comparison

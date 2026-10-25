@@ -1,12 +1,17 @@
-name: Collect ESPN data
+name: Collect ESPN data and publish report
 
 on:
   schedule:
     - cron: "0 10 * * *"   # 10:00 UTC = 5-6am ET, after the night's games are final
   workflow_dispatch:
+  push:
+    branches: [main]
+    paths-ignore: ["data/**", "README.md"]
 
 permissions:
   contents: write
+  pages: write
+  id-token: write
 
 concurrency:
   group: collect
@@ -15,6 +20,9 @@ concurrency:
 jobs:
   collect:
     runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -38,3 +46,11 @@ jobs:
           git add data/
           git diff --cached --quiet || git commit -m "data: snapshot $(date -u +%F)"
           git push
+      - name: Build report
+        run: python -m fantasy.report --out site
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+      - id: deploy
+        uses: actions/deploy-pages@v4
