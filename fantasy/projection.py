@@ -6,6 +6,9 @@ For each fantasy team and matchup week:
   3. each day, start the most valuable players that fit the active lineup slots,
   4. for every simulated week, draw each start from the player's recent box
      scores (bootstrap; this season weighted above last season), and sum.
+     Last season's games are the season's final stretch (ESPN returns the most
+     recent days), so for players with a full season they are rescaled to the
+     full-season per-game averages.
 Ratio categories (FG%, FT%) are total makes / total attempts, as ESPN scores them.
 """
 from dataclasses import dataclass, field
@@ -21,6 +24,8 @@ CURRENT_SEASON_WEIGHT = 3.0
 PREV_SEASON_GAMES = 20
 PRIOR_GAMES = 8          # shrinkage strength toward projection / last season
 MIN_LOG_GAMES = 5        # below this, synthesize games around the blended mean
+FULL_SEASON_GP = 50      # last-season games needed to trust the full-season average
+RESCALE_LIMITS = (0.5, 2.0)
 OUT_STATUSES = {"OUT", "SUSPENSION", "INJURY_RESERVE"}
 PLAY_PROB = {"DAY_TO_DAY": 0.7, "QUESTIONABLE": 0.6, "DOUBTFUL": 0.25, "PROBABLE": 0.9}
 
@@ -89,11 +94,38 @@ class Simulator:
         logs = logs.sort_values("scoring_period")
         for pid, g in logs.groupby("player_id"):
             cur = g[g["season"] == season]
-            prev = g[g["season"] == season - 1].tail(PREV_SEASON_GAMES)
-            both = pd.concat([cur, prev])
+            prev = g[g["season"] == season - 1].tail(PREV_SEASON_GAMES)[RAW_STATS].to_numpy(float)
+            prev = self._to_full_season(pid, prev)
+            games = np.vstack([cur[RAW_STATS].to_numpy(float), prev])
             w = np.r_[np.full(len(cur), CURRENT_SEASON_WEIGHT), np.ones(len(prev))]
-            pools[pid] = (both[RAW_STATS].to_numpy(float), w / w.sum())
+            pools[pid] = (games, w / w.sum())
         return pools
+
+    def _to_full_season(self, pid, prev: np.ndarray) -> np.ndarray:
+        """Rescale last season's final-stretch games so each stat averages the full-season rate.
+
+        Keeps game-to-game variation and within-game correlation; only the level moves.
+        Stats the sample never recorded (e.g. 0 blocks in 20 games) are shifted instead.
+        """
+        if not len(prev) or pid not in self.players.index:
+            return prev
+        p = self.players.loc[pid]
+        if pd.isna(p.get("prev_gp")) or p.get("prev_gp", 0) < FULL_SEASON_GP:
+            return prev
+        target = np.array([p.get(f"prev_{s}", np.nan) for s in RAW_STATS], dtype=float)
+        sample = prev.mean(axis=0)
+        out = prev.copy()
+        for k, (t, m) in enumerate(zip(target, sample)):
+            if np.isnan(t):
+                continue
+            if m > 0:
+                out[:, k] *= np.clip(t / m, *RESCALE_LIMITS)
+            else:
+                out[:, k] += t
+        i = {s: k for k, s in enumerate(RAW_STATS)}
+        for made, att in (("FGM", "FGA"), ("FTM", "FTA"), ("3PM", "FGM")):
+            out[:, i[made]] = np.minimum(out[:, i[made]], out[:, i[att]])
+        return out
 
     def _synthetic_pool(self, pid, rng, n=40):
         """Players with few box scores: Poisson games around the blended mean."""

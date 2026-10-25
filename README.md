@@ -46,6 +46,8 @@ preview, with free-agent pickups. Build it locally with `python -m fantasy.repor
   and placed into active slots (`fantasy/lineup.py`); extras sit.
 - OUT/suspended players are skipped until their expected return date; day-to-day players play with probability 0.7.
 - Each start is sampled from the player's recent games (this season weighted 3× over last season's last 20).
+  Those last-season games are the season's final stretch, so for players with 50+ games last season each
+  stat is rescaled to their full-season per-game average (variation kept, level corrected).
   Players with fewer than 5 games get Poisson games around their projection.
 - FG%/FT% are total makes / total attempts; TO is lower-is-better; ties count as half.
 

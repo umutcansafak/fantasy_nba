@@ -235,7 +235,8 @@ def build(out: Path, n_sims: int = 5000, n_fa: int = 20) -> Path:
 <h1>{esc(meta.get('league_name') or 'Fantasy NBA')} matchup report</h1>
 <p class="muted">Updated {updated} · {n_sims:,} simulated weeks from players' real box scores</p>
 {''.join(sections)}
-<footer>Projections bootstrap each starter's recent games (this season weighted above last), fill daily lineups
+<footer>Projections bootstrap each starter's recent games (this season weighted above last; last season's games
+rescaled to full-season averages for players with 50+ games), fill daily lineups
 by value within ESPN slot limits, and skip players listed OUT. Ties count as half a win.</footer>
 </main></body></html>"""
     out.mkdir(parents=True, exist_ok=True)
