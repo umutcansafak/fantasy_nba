@@ -11,10 +11,11 @@ from fantasy.config import CATEGORIES
 from fantasy.demo import demo_league
 from fantasy.projection import (Simulator, actual_totals, compare, next_matchup_period, opponent_of,
                                 with_actuals)
+from fantasy.league_page import week_data
 from fantasy.recommend import recommend, weakest_player
 
 # Categorical slots 1-2 of the validated reference palette (me = blue, opponent = orange).
-ME, OPP = "#2a78d6", "#eb6834"
+ME, OPP, OTHER = "#2a78d6", "#eb6834", "#8a8984"
 DATA_ROOT = Path(os.getenv("FANTASY_DATA", store.DATA_DIR))
 
 st.set_page_config(page_title="Fantasy NBA matchup", layout="wide")
@@ -59,6 +60,38 @@ def category_chart(row, me_name, opp_name):
                         + (f"  <span style='font-size:11px'>({better})</span>" if better else ""), font=dict(size=14)),
         height=190, margin=dict(l=10, r=10, t=40, b=20), hovermode="closest",
     )
+    return fig
+
+
+@st.cache_data(show_spinner="Simulating every team…", max_entries=6)
+def league_week(day, version, demo, n_sims, mp):
+    sim = simulator(day, version, demo, n_sims)
+    return week_data(sim, sim.snap, mp, f"Week {mp}")
+
+
+def league_chart(cat, team_names, visible, me_id, opp_id):
+    """All teams ranked by expected total; hidden teams keep their true rank."""
+    ranked = sorted(cat["rows"], key=lambda r: r["mean"], reverse=not cat["lower"])
+    rank = {r["id"]: i + 1 for i, r in enumerate(ranked)}
+    rows = [r for r in ranked if r["id"] in visible]
+    fmt_v = (lambda v: f"{v:.1%}") if cat["pct"] else (lambda v: f"{v:,.0f}")
+    fig = go.Figure()
+    labels = []
+    for r in rows:
+        color = ME if r["id"] == me_id else OPP if r["id"] == opp_id else OTHER
+        label = f"#{rank[r['id']]}  {team_names[r['id']]}"
+        labels.append(label)
+        hover = (f"<b>{label}</b><br>expected {fmt_v(r['mean'])}<br>"
+                 f"80% range {fmt_v(r['lo'])}–{fmt_v(r['hi'])}<extra></extra>")
+        fig.add_trace(go.Scatter(x=[r["lo"], r["hi"]], y=[label, label], mode="lines", opacity=0.35,
+                                 line=dict(color=color, width=9), hovertemplate=hover, showlegend=False))
+        fig.add_trace(go.Scatter(x=[r["mean"]], y=[label], mode="markers+text", text=[fmt_v(r["mean"])],
+                                 textposition="middle right", marker=dict(color=color, size=11),
+                                 hovertemplate=hover, showlegend=False,
+                                 textfont=dict(size=12, weight=700 if r["id"] == me_id else 400)))
+    fig.update_yaxes(categoryorder="array", categoryarray=labels[::-1], showgrid=False)
+    fig.update_xaxes(tickformat=".1%" if cat["pct"] else ",.0f", showgrid=True, nticks=6)
+    fig.update_layout(height=70 + 34 * max(len(rows), 1), margin=dict(l=10, r=40, t=10, b=30), hovermode="closest")
     return fig
 
 
@@ -134,7 +167,8 @@ k[1].metric("P(win matchup)", f"{overall['p_win_matchup']:.0%}")
 k[2].metric("My starts", overall["me_starts"], delta=overall["me_starts"] - overall["opp_starts"])
 k[3].metric("Opponent starts", overall["opp_starts"])
 
-tab_cats, tab_games, tab_fa, tab_trends = st.tabs(["Categories", "Games & lineups", "Free agents", "Trends"])
+tab_cats, tab_league, tab_games, tab_fa, tab_trends = st.tabs(
+    ["Categories", "League", "Games & lineups", "Free agents", "Trends"])
 
 # --------------------------------------------------------------- categories
 
@@ -159,6 +193,35 @@ with tab_cats:
         st.dataframe(view.rename(columns={"me_lo": "me p10", "me_mean": "me exp", "me_hi": "me p90",
                                           "opp_lo": "opp p10", "opp_mean": "opp exp", "opp_hi": "opp p90"}),
                      hide_index=True, width="stretch")
+
+# ------------------------------------------------------------------ league
+
+with tab_league:
+    lw = league_week(day, version, demo, n_sims, mp)
+    if lw is None:
+        st.info("No days left to simulate in this week.")
+    else:
+        st.caption(f"Every team's projected totals for week {mp} ({lw['note']}), independent of opponent. "
+                   "Bands are the middle 80% of simulated weeks; ranks compare expected totals.")
+        ids = list(teams)
+        visible = st.pills("Teams shown (click to toggle)", ids, selection_mode="multi", default=ids,
+                           format_func=lambda t: teams[t] + (" (you)" if t == me_id else " (opponent)" if t == opp_id else ""),
+                           key="league_teams")
+        visible = set(visible or [])
+        cats = lw["cats"]
+        def my_rank(c):
+            ranked = sorted(c["rows"], key=lambda r: r["mean"], reverse=not c["lower"])
+            return next(i + 1 for i, r in enumerate(ranked) if r["id"] == me_id)
+        sub = st.tabs([f"{c['name']} · #{my_rank(c)}" for c in cats])
+        for t, c in zip(sub, cats):
+            with t:
+                st.markdown(f"**{c['name']}**: you rank **#{my_rank(c)} of {len(c['rows'])}**"
+                            + (" · lower is better" if c["lower"] else ""))
+                if not visible:
+                    st.info("All teams are hidden.")
+                else:
+                    st.plotly_chart(league_chart(c, teams, visible, me_id, opp_id), width="stretch",
+                                    config={"displayModeBar": False}, key=f"league-{c['name']}")
 
 # ------------------------------------------------------------ games/lineups
 
