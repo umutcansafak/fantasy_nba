@@ -28,6 +28,7 @@
     "13": 1,
     "14": 0
   },
+  "regular_matchups": 18,
   "current_matchup_period": 1,
   "current_matchup_days": [
     1,
@@ -253,6 +254,6 @@
   },
   "season": 2027,
   "team_id": 5,
-  "collected_at": "2026-10-25T19:46:12.825446-04:00",
+  "collected_at": "2026-10-25T20:03:17.441494-04:00",
   "public": false
 }
