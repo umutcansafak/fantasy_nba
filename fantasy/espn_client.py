@@ -205,6 +205,7 @@ def parse_league(data) -> dict:
             # matchup period -> calendar weeks; collect resolves these to days
             "matchup_weeks": {int(k): v for k, v in
                                 settings.get("scheduleSettings", {}).get("matchupPeriods", {}).items()},
+            "regular_matchups": settings.get("scheduleSettings", {}).get("matchupPeriodCount"),
             "current_matchup_period": status.get("currentMatchupPeriod"),
             "current_matchup_days": live_days,
             "current_scoring_period": data.get("scoringPeriodId") or status.get("latestScoringPeriod"),

@@ -52,3 +52,11 @@ preview, with free-agent pickups. Build it locally with `python -m fantasy.repor
 - FG%/FT% are total makes / total attempts; TO is lower-is-better; ties count as half.
 
 `python -m tests.smoke_test [data_root]` runs lineup unit checks and an end-to-end simulation.
+
+## Trade ideas (`pages/1_Trades.py`, `fantasy/trades.py`)
+Streamlit-only (not on the shared Pages site). For the rest of the season, each team's
+strength = expected categories won per week vs the average opponent, from players'
+per-game means/variances × remaining games (playoff weeks ×2). Every 1-for-1 and 2-for-2
+swap with every team is scored; the best per partner are re-checked with real daily
+lineups. Win-win = both teams' strength rises. Fairness (0-100) = ½ gain balance +
+½ "looks even" by standard 9-cat player value.

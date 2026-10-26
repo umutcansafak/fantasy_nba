@@ -1,36 +1,19 @@
 """Matchup dashboard: `streamlit run app.py`."""
-import os
-from pathlib import Path
-
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
 from fantasy import store
 from fantasy.config import CATEGORIES
-from fantasy.demo import demo_league
-from fantasy.projection import (Simulator, actual_totals, compare, next_matchup_period, opponent_of,
+from fantasy.app_data import DATA_ROOT, load, simulator, snapshot_version
+from fantasy.projection import (actual_totals, compare, next_matchup_period, opponent_of,
                                 with_actuals)
 from fantasy.league_page import week_data
 from fantasy.recommend import recommend, weakest_player
 
 # Categorical slots 1-2 of the validated reference palette (me = blue, opponent = orange).
 ME, OPP, OTHER = "#2a78d6", "#eb6834", "#8a8984"
-DATA_ROOT = Path(os.getenv("FANTASY_DATA", store.DATA_DIR))
-
 st.set_page_config(page_title="Fantasy NBA matchup", layout="wide")
-
-
-@st.cache_data(show_spinner=False, max_entries=5)
-def load(day, version=None):
-    """`version` (meta.json mtime) busts the cache when a day's snapshot is re-collected."""
-    return store.load_snapshot(day, root=DATA_ROOT)
-
-
-@st.cache_resource(show_spinner="Building player pools…", max_entries=3)
-def simulator(day, version, demo, n_sims):
-    snap = load(day, version)
-    return Simulator(demo_league(snap) if demo else snap, n_sims=n_sims)
 
 
 def fmt(cat_name, v):
@@ -118,7 +101,7 @@ if not days:
 with st.sidebar:
     st.header("Setup")
     day = st.selectbox("Snapshot", days[::-1], help="Data collected on this day (ET)")
-    version = (store.snapshot_dir(day, DATA_ROOT) / "meta.json").stat().st_mtime
+    version = snapshot_version(day)
     snap = load(day, version)
     demo = snap["rosters"].empty
     if demo:

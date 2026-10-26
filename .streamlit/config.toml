@@ -1,0 +1,3 @@
+[theme]
+# accent = the "me" blue used across charts (Streamlit default red reads as "loss" here)
+primaryColor = "#2a78d6"
