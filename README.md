@@ -53,6 +53,11 @@ per-game averages only (no ESPN projection), against this season's top 200 score
 (blue helps, red hurts; TO flipped; FG%/FT% weighted by attempts), per game or for the
 week: games already played that week (from the game logs) + season averages × expected starts left. On both the dashboard and the Pages report.
 
+## Player contributions (`pages/2_Player_contributions.py`)
+The same heatmap for any team's roster or the free-agent pool (sorted by season value,
+with a minimum-games filter), plus a teams-at-a-glance view of each roster's summed
+z-scores per category. Streamlit only.
+
 ## How the projection works (`fantasy/projection.py`)
 - Week = the league's matchup period (scoring period = one day). On Sunday the default is next week.
 - Each day, players whose NBA team plays are ranked by a 9-cat z-score value

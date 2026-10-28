@@ -2,6 +2,7 @@
 import pandas as pd
 
 from .config import CATEGORIES, RAW_STATS
+from .nba_schedule import games_by_team_period
 from .projection import Simulator, apply_zscores, zscore_params
 
 
@@ -15,18 +16,33 @@ def season_rates(players: pd.DataFrame) -> pd.DataFrame:
 
 
 def roster_contributions(sim: Simulator, team_id: int, matchup_period: int | None = None) -> pd.DataFrame:
-    """One row per rostered player: this season's per-game rates, per-category z-scores and their total.
+    """Contributions of one fantasy team's roster; the week view respects its daily lineup limits."""
+    return contributions(sim, sim.roster_of(team_id), matchup_period)
+
+
+def free_agent_contributions(sim: Simulator, matchup_period: int | None = None) -> pd.DataFrame:
+    """Contributions of every unrostered player who has played this season (week view: every game he plays)."""
+    taken = set(sim.snap["rosters"]["player_id"])
+    pool = sim.players[~sim.players["player_id"].isin(taken) & (sim.players["season_gp"].fillna(0) > 0)]
+    roster = pd.DataFrame({"player_id": pool["player_id"].to_numpy(), "lineup_slot": 0})
+    return contributions(sim, roster, matchup_period, lineup=False)
+
+
+def contributions(sim: Simulator, roster: pd.DataFrame, matchup_period: int | None = None,
+                  lineup: bool = True) -> pd.DataFrame:
+    """One row per player in `roster` (player_id, lineup_slot): this season's per-game rates,
+    per-category z-scores and their total.
 
     z-scores compare against this season's top 200 scorers. Players without a game yet get NaN.
     With `matchup_period`, also that week's impact in `wk_<cat>` / `wk_total`: the z-scores of the games
     he already played that week (`played_games`) plus his season z-scores times the games he is
-    expected to start in the rest of it (`exp_games`).
+    expected to play in the rest of it (`exp_games`): starts within the lineup limits when `lineup`,
+    otherwise every NBA game he is available for.
     """
     cats = [CATEGORIES[c]["name"] for c in sim.cat_ids]
     rates = season_rates(sim.snap["players"])
     params = zscore_params(rates, sim.cat_ids)
     z = apply_zscores(rates, params)
-    roster = sim.roster_of(team_id)
     roster = roster[roster["player_id"].isin(sim.players.index)]
     p = sim.players.loc[roster["player_id"], ["name", "pro_team", "injury_status"]].reset_index(drop=True)
     p["player_id"] = roster["player_id"].to_numpy()
@@ -53,7 +69,17 @@ def roster_contributions(sim: Simulator, team_id: int, matchup_period: int | Non
                     & logs["scoring_period"].isin([d for d in week if d not in left])]
         done = apply_zscores(logs, params).groupby(logs["player_id"]).sum()
         p["played_games"] = p["player_id"].map(logs.groupby("player_id").size()).fillna(0).astype(int)
-        starts = sim.plan_starts(roster, left).groupby("player_id")["play_prob"].sum() if left else pd.Series(dtype=float)
+        if not left:
+            starts = pd.Series(dtype=float)
+        elif lineup:
+            starts = sim.plan_starts(roster, left).groupby("player_id")["play_prob"].sum()
+        else:
+            grid = games_by_team_period(sim.pro, left)
+            starts = pd.Series({pid: sum(sim._availability(pid, slot, d) for d in left
+                                         if team in grid.index and grid.at[team, d] > 0)
+                                for pid, slot, team in zip(roster["player_id"], roster["lineup_slot"],
+                                                           sim.players.loc[roster["player_id"], "pro_team_id"])},
+                               dtype=float)
         p["exp_games"] = p["player_id"].map(starts).fillna(0.0)
         for c in cats:
             played = p["player_id"].map(done[c]).fillna(0.0) if c in done else 0.0
@@ -69,3 +95,15 @@ def ordered_categories(cat_ids: list[str]) -> list[str]:
     """League category names in the familiar box-score order."""
     names = [CATEGORIES[c]["name"] for c in cat_ids]
     return sorted(names, key=lambda n: DISPLAY_ORDER.index(n) if n in DISPLAY_ORDER else len(DISPLAY_ORDER))
+
+
+def team_overview(sim: Simulator) -> pd.DataFrame:
+    """Every fantasy team's summed season z-scores per category (all rostered players), plus a total."""
+    cats = [CATEGORIES[c]["name"] for c in sim.cat_ids]
+    rows = []
+    for tid, name in sim.snap["teams"].set_index("team_id")["name"].items():
+        d = roster_contributions(sim, tid)
+        rows.append({"team_id": tid, "team": name, **d[cats].sum().to_dict()})
+    out = pd.DataFrame(rows)
+    out["total"] = out[cats].sum(axis=1)
+    return out.sort_values("total", ascending=False).reset_index(drop=True)
