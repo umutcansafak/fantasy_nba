@@ -47,6 +47,11 @@ The dashboard opens on the live matchup against your scheduled opponent: score n
 chance to win, starts left, and each category marked Locked (≥90%), Leaning win,
 Swing (35–65%), Leaning loss or Lost (≤10%) for the rest of the week.
 
+## My players (`fantasy/players.py`)
+A heatmap of every rostered player's z-score per category against the top 200 players
+(blue helps, red hurts; TO flipped; FG%/FT% weighted by attempts), per game or multiplied
+by the games he is expected to start this week. On both the dashboard and the Pages report.
+
 ## How the projection works (`fantasy/projection.py`)
 - Week = the league's matchup period (scoring period = one day). On Sunday the default is next week.
 - Each day, players whose NBA team plays are ranked by a 9-cat z-score value

@@ -14,6 +14,7 @@ import pandas as pd
 
 from . import league_page, store
 from .live import live_matchup
+from .players import ordered_categories, roster_contributions
 from .config import CATEGORIES, ROOT
 from .projection import (Simulator, actual_totals, compare, next_matchup_period, opponent_of,
                          with_actuals)
@@ -159,6 +160,60 @@ def live_html(sim, snap, me_id):
 </section>"""
 
 
+def heat_cell(v, lim):
+    """Diverging cell: blue helps, red hurts; intensity mixes the pole into the card surface."""
+    v = v if abs(v) >= 0.05 else 0.0  # no "-0.0"
+    share = min(abs(v) / lim, 1) * 70
+    pole = "--pw" if v >= 0 else "--pl"
+    return (f'<td class="z" style="background:color-mix(in oklab,var({pole}) {share:.0f}%,var(--card))">'
+            f"{v:+.1f}</td>")
+
+
+def players_html(sim, snap, me_id):
+    """Each rostered player's z-score per category, per game and weighted by games left this week."""
+    mp = snap["meta"].get("current_matchup_period") or next_matchup_period(snap["meta"])
+    periods = sim.periods_for(mp) or sim.periods_for(next_matchup_period(snap["meta"]))
+    d = roster_contributions(sim, me_id, periods)
+    if d.empty:
+        return ""
+    cats = ordered_categories(sim.cat_ids)
+
+    def table(view, weekly):
+        lim = max(1.0, float(view[cats].abs().to_numpy().max())) if weekly else 3.0
+        body = "".join(
+            f"<tr><td>{esc(r['name'])}"
+            + ("" if r["injury_status"] == "ACTIVE" else f" <span class=muted>{esc(r['injury_status'].replace('_', ' ').lower())}</span>")
+            + f"</td><td class=z>{r['total']:+.1f}</td>"
+            + (f"<td class=z>{r['exp_games']:.1f}</td>" if weekly else "")
+            + "".join(heat_cell(r[c], lim) for c in cats) + "</tr>"
+            for _, r in view.iterrows())
+        head = ("<th>Player</th><th>Total</th>" + ("<th>Games</th>" if weekly else "")
+                + "".join(f"<th>{esc(c)}</th>" for c in cats))
+        return f"<div class='scroll'><table class='heat'><thead><tr>{head}</tr></thead><tbody>{body}</tbody></table></div>"
+
+    weekly = d.copy()
+    weekly[cats] = weekly[cats].mul(weekly["exp_games"], axis=0)
+    weekly["total"] = weekly[cats].sum(axis=1)
+    weekly = weekly.sort_values("total", ascending=False)
+    team = d[cats].sum()
+    return f"""
+<section>
+  <h2>My players</h2>
+  <p class="muted">How each player helps (blue) or hurts (red) every category: z-score vs the top 200 players,
+     so +1 = one standard deviation better than average. TO is flipped; FG%/FT% weigh shooting volume.</p>
+  <div class="seg" role="tablist">
+    <button class="on" data-show="pg">Per game</button><button data-show="wk">This week (× games left)</button></div>
+  <div data-view="pg">{table(d, False)}</div>
+  <div data-view="wk" hidden>{table(weekly, True)}</div>
+  <p><b>Roster in a nutshell (per game):</b> strongest
+     {esc(", ".join(f"{c} {team[c]:+.1f}" for c in team.sort_values(ascending=False).index[:3]))} ·
+     weakest {esc(", ".join(f"{c} {team[c]:+.1f}" for c in team.sort_values().index[:3]))}</p>
+  <script>document.querySelectorAll('.seg button').forEach(b=>b.onclick=()=>{{
+    document.querySelectorAll('.seg button').forEach(x=>x.classList.toggle('on',x===b));
+    document.querySelectorAll('[data-view]').forEach(v=>v.hidden=v.dataset.view!==b.dataset.show);}});</script>
+</section>"""
+
+
 def section(sim, snap, me_id, mp, title, n_fa):
     teams = snap["teams"].set_index("team_id")["name"].to_dict()
     opp_id = opponent_of(snap, me_id, mp)
@@ -285,6 +340,11 @@ footer{margin-top:48px;color:var(--muted);font-size:13px}
 .split{display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:16px;align-items:start}
 .zone{fill:var(--ps);opacity:.14}.dot.pw{fill:var(--pw)}.dot.pl{fill:var(--pl)}.dot.ps{fill:var(--ps)}
 .kpis div small.muted{display:block;font-size:12px}
+[hidden]{display:none!important}
+.heat td.z{text-align:center;font-variant-numeric:tabular-nums;min-width:52px}.heat th{text-align:center}.heat th:first-child{text-align:left}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden;margin:4px 0 8px}
+.seg button{background:var(--card);color:var(--ink2);border:0;padding:6px 12px;font:inherit;font-size:13px;cursor:pointer}
+.seg button.on{background:var(--ink);color:var(--bg)}
 nav.top{display:flex;gap:16px;margin-bottom:16px;font-size:14px}nav.top a{color:var(--ink2)}nav.top a.on{color:var(--ink);font-weight:600}
 """
 
@@ -321,6 +381,7 @@ def build(out: Path, n_sims: int = 5000, n_fa: int = 20) -> Path:
 <h1>{esc(meta.get('league_name') or 'Fantasy NBA')} matchup report</h1>
 <p class="muted">Updated {updated} · {n_sims:,} simulated weeks from players' real box scores</p>
 {live_html(sim, snap, me_id)}
+{players_html(sim, snap, me_id)}
 {''.join(sections)}
 <footer>Projections bootstrap each starter's recent games (this season weighted above last; last season's games
 rescaled to full-season averages for players with 50+ games), fill daily lineups

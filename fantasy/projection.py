@@ -45,10 +45,13 @@ def blended_rates(players: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
-def player_values(rates: pd.DataFrame, cat_ids: list[str], pool_size: int = 200) -> pd.Series:
-    """Sum of per-category z-scores (ratio cats weighted by attempt volume)."""
+def category_zscores(rates: pd.DataFrame, cat_ids: list[str], pool_size: int = 200) -> pd.DataFrame:
+    """Per-category z-scores vs the top-`pool_size` players, signed so positive always helps.
+
+    Ratio cats are volume-weighted: makes above what a league-average shooter makes on the same attempts.
+    """
     ref = rates.sort_values("PTS", ascending=False).head(pool_size)
-    total = pd.Series(0.0, index=rates.index)
+    out = pd.DataFrame(index=rates.index)
     for cid in cat_ids:
         cat = CATEGORIES[cid]
         if "ratio" in cat:
@@ -59,8 +62,13 @@ def player_values(rates: pd.DataFrame, cat_ids: list[str], pool_size: int = 200)
         else:
             col, ref_col = rates[cat["name"]], ref[cat["name"]]
         z = (col - ref_col.mean()) / (ref_col.std() or 1.0)
-        total += -z if cat.get("lower_is_better") else z
-    return total
+        out[cat["name"]] = -z if cat.get("lower_is_better") else z
+    return out
+
+
+def player_values(rates: pd.DataFrame, cat_ids: list[str], pool_size: int = 200) -> pd.Series:
+    """Sum of per-category z-scores (ratio cats weighted by attempt volume)."""
+    return category_zscores(rates, cat_ids, pool_size).sum(axis=1)
 
 
 # ------------------------------------------------------------------ simulation

@@ -1,4 +1,5 @@
 """Matchup dashboard: `streamlit run app.py`."""
+import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
@@ -10,6 +11,7 @@ from fantasy.projection import (actual_totals, compare, next_matchup_period, opp
                                 with_actuals)
 from fantasy.league_page import week_data
 from fantasy.live import live_matchup
+from fantasy.players import ordered_categories, roster_contributions
 from fantasy.recommend import recommend, weakest_player
 
 # Categorical slots 1-2 of the validated reference palette (me = blue, opponent = orange).
@@ -109,6 +111,32 @@ def pwin_chart(cats):
     return fig
 
 
+def contribution_heatmap(d, cats, weekly):
+    """Players x categories, diverging around 0: blue helps, red hurts, gray is about average."""
+    rows = d.iloc[::-1]  # best player on top
+    z = rows[cats].to_numpy()
+    z = np.where(abs(z) < 0.05, 0.0, z)  # no "-0.0"
+    lim = max(1.0, float(abs(z).max())) if weekly else 3.0
+    labels = [f"{n}  ({t:+.1f})" + (f" · {s.replace('_', ' ').lower()}" if s != "ACTIVE" else "")
+              for n, t, s in zip(rows["name"], rows["total"], rows["injury_status"])]
+    def raw(r, c):
+        v = r[f"raw_{c}"]
+        if c.endswith("%"):
+            return "–" if pd.isna(v) else f"{v:.1%} on {r[f'att_{c}']:.1f} att"
+        return f"{v:.1f}"
+    hover = [[f"<b>{r['name']}</b><br>{c}: {raw(r, c)} per game<br>"
+              + (f"{r[c]:+.1f} over {r['exp_games']:.1f} games left" if weekly else f"{r[c]:+.1f} vs average")
+              for c in cats] for _, r in rows.iterrows()]
+    fig = go.Figure(go.Heatmap(
+        z=z, x=cats, y=labels, zmid=0, zmin=-lim, zmax=lim, xgap=2, ygap=2,
+        colorscale=[[0, LOSS], [0.5, "#e6e5e0"], [1, WIN]], text=[[f"{v:+.1f}" for v in r] for r in z],
+        texttemplate="%{text}", textfont=dict(size=12), hovertext=hover, hovertemplate="%{hovertext}<extra></extra>",
+        colorbar=dict(title=dict(text="helps →" if not weekly else "impact", side="right"), thickness=10)))
+    fig.update_layout(height=60 + 30 * len(rows), margin=dict(l=10, r=10, t=30, b=10),
+                      xaxis=dict(side="top", showgrid=False), yaxis=dict(showgrid=False))
+    return fig
+
+
 def games_chart(me_daily, opp_daily, dates, me_name, opp_name):
     fig = go.Figure()
     for label, color, daily in ((me_name, ME, me_daily), (opp_name, OPP, opp_daily)):
@@ -181,8 +209,8 @@ k[1].metric("P(win matchup)", f"{overall['p_win_matchup']:.0%}")
 k[2].metric("My starts", overall["me_starts"], delta=overall["me_starts"] - overall["opp_starts"])
 k[3].metric("Opponent starts", overall["opp_starts"])
 
-tab_live, tab_cats, tab_league, tab_games, tab_fa, tab_trends = st.tabs(
-    ["This week", "Categories", "League", "Games & lineups", "Free agents", "Trends"])
+tab_live, tab_cats, tab_players, tab_league, tab_games, tab_fa, tab_trends = st.tabs(
+    ["This week", "Categories", "My players", "League", "Games & lineups", "Free agents", "Trends"])
 
 # ---------------------------------------------------------------- this week
 
@@ -257,6 +285,42 @@ with tab_cats:
         st.dataframe(view.rename(columns={"me_lo": "me p10", "me_mean": "me exp", "me_hi": "me p90",
                                           "opp_lo": "opp p10", "opp_mean": "opp exp", "opp_hi": "opp p90"}),
                      hide_index=True, width="stretch")
+
+# -------------------------------------------------------------- my players
+
+with tab_players:
+    mode = st.segmented_control("Show", ["Per game", "This week"], default="Per game", key="contrib_mode",
+                                help="Per game: how a typical game of his compares with an average fantasy starter. "
+                                     "This week: the same, times the games he is expected to start in the selected week.")
+    weekly = mode == "This week"
+    contrib = roster_contributions(sim, me_id, periods)
+    cat_names = ordered_categories(sim.cat_ids)
+    shown = contrib.copy()
+    if weekly:
+        shown[cat_names] = shown[cat_names].mul(shown["exp_games"], axis=0)
+        shown["total"] = shown[cat_names].sum(axis=1)
+        shown = shown.sort_values("total", ascending=False)
+    st.caption("Each cell is a z-score against the top 200 players: +1 means one standard deviation better than "
+               "average in that category, negative means he pulls you down. TO is flipped (more turnovers = red). "
+               "FG%/FT% account for volume: a 45% shooter on 20 attempts hurts more than one on 5. "
+               "The number after each name is his total.")
+    st.plotly_chart(contribution_heatmap(shown, cat_names, weekly), width="stretch",
+                    config={"displayModeBar": False}, key="contrib")
+
+    team = shown[cat_names].sum()
+    st.markdown("**Roster in a nutshell** " + ("(this week)" if weekly else "(per game, all players)") + ": "
+                "strongest " + ", ".join(f"{c} {team[c]:+.1f}" for c in team.sort_values(ascending=False).index[:3])
+                + " · weakest " + ", ".join(f"{c} {team[c]:+.1f}" for c in team.sort_values().index[:3]))
+    lines = []
+    for _, r in shown.iterrows():
+        vals = r[cat_names].astype(float)
+        ups = [f"{c} {vals[c]:+.1f}" for c in vals.sort_values(ascending=False).index[:3] if vals[c] >= 0.5]
+        downs = [f"{c} {vals[c]:+.1f}" for c in vals.sort_values().index[:2] if vals[c] <= -0.5]
+        status = "" if r["injury_status"] == "ACTIVE" else f" _({r['injury_status'].replace('_', ' ').lower()})_"
+        lines.append(f"- **{r['name']}**{status}: helps {', '.join(ups) or 'nothing much'}"
+                     + (f" · hurts {', '.join(downs)}" if downs else ""))
+    with st.expander("Player by player"):
+        st.markdown("\n".join(lines))
 
 # ------------------------------------------------------------------ league
 
