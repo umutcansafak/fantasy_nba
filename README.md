@@ -40,6 +40,12 @@ After collecting, the same workflow runs `python -m fantasy.report` and publishe
 the live week (ESPN totals so far + simulated remaining days) and next week's
 preview, with free-agent pickups. Build it locally with `python -m fantasy.report`.
 
+## This week (`fantasy/live.py`)
+The dashboard opens on the live matchup against your scheduled opponent: score now
+(categories led / trailed / tied from ESPN's recorded totals), projected final and
+chance to win, starts left, and each category marked Locked (≥90%), Leaning win,
+Swing (35–65%), Leaning loss or Lost (≤10%) for the rest of the week.
+
 ## How the projection works (`fantasy/projection.py`)
 - Week = the league's matchup period (scoring period = one day). On Sunday the default is next week.
 - Each day, players whose NBA team plays are ranked by a 9-cat z-score value

@@ -9,10 +9,14 @@ from fantasy.app_data import DATA_ROOT, load, simulator, snapshot_version
 from fantasy.projection import (actual_totals, compare, next_matchup_period, opponent_of,
                                 with_actuals)
 from fantasy.league_page import week_data
+from fantasy.live import live_matchup
 from fantasy.recommend import recommend, weakest_player
 
 # Categorical slots 1-2 of the validated reference palette (me = blue, opponent = orange).
 ME, OPP, OTHER = "#2a78d6", "#eb6834", "#8a8984"
+# Diverging pair for win probability: blue = winning side, red = losing side, gray = swing midpoint.
+WIN, LOSS = "#2a78d6", "#e34948"
+STATUS_ICON = {"Locked": "🔒", "Leaning win": "↗", "Swing": "⚖", "Leaning loss": "↘", "Lost": "✕"}
 st.set_page_config(page_title="Fantasy NBA matchup", layout="wide")
 
 
@@ -75,6 +79,33 @@ def league_chart(cat, team_names, visible, me_id, opp_id):
     fig.update_yaxes(categoryorder="array", categoryarray=labels[::-1], showgrid=False)
     fig.update_xaxes(tickformat=".1%" if cat["pct"] else ",.0f", showgrid=True, nticks=6)
     fig.update_layout(height=70 + 34 * max(len(rows), 1), margin=dict(l=10, r=40, t=10, b=30), hovermode="closest")
+    return fig
+
+
+@st.cache_data(show_spinner="Simulating the rest of this week…", max_entries=6)
+def live_week(day, version, demo, n_sims, me_id):
+    sim = simulator(day, version, demo, n_sims)
+    return live_matchup(sim, sim.snap, me_id)
+
+
+def pwin_chart(cats):
+    """One dot per category on a 0-100% win-probability axis; the swing band is shaded."""
+    d = cats.sort_values("p_win")
+    colors = [WIN if p >= 0.65 else LOSS if p <= 0.35 else OTHER for p in d["p_win"]]
+    fig = go.Figure()
+    fig.add_vrect(x0=35, x1=65, fillcolor=OTHER, opacity=0.12, line_width=0)
+    fig.add_vline(x=50, line=dict(color=OTHER, width=1, dash="dot"))
+    fig.add_trace(go.Scatter(
+        x=d["p_win"] * 100, y=d["category"], mode="markers+text", marker=dict(color=colors, size=13),
+        text=[f"{p:.0%}  {STATUS_ICON[s]} {s}" for p, s in zip(d["p_win"], d["status"])],
+        textposition="middle right", cliponaxis=False, showlegend=False,
+        hovertemplate="%{y}: %{x:.0f}% chance to win<extra></extra>"))
+    fig.add_annotation(x=50, y=1.0, yref="paper", yanchor="bottom", text="swing zone", showarrow=False,
+                       font=dict(size=11, color=OTHER))
+    fig.update_layout(height=60 + 34 * len(d), margin=dict(l=10, r=150, t=24, b=30), hovermode="closest",
+                      xaxis=dict(range=[0, 100], ticksuffix="%", dtick=25, showgrid=True,
+                                 title="chance to win the category by Sunday"),
+                      yaxis=dict(showgrid=False))
     return fig
 
 
@@ -150,8 +181,58 @@ k[1].metric("P(win matchup)", f"{overall['p_win_matchup']:.0%}")
 k[2].metric("My starts", overall["me_starts"], delta=overall["me_starts"] - overall["opp_starts"])
 k[3].metric("Opponent starts", overall["opp_starts"])
 
-tab_cats, tab_league, tab_games, tab_fa, tab_trends = st.tabs(
-    ["Categories", "League", "Games & lineups", "Free agents", "Trends"])
+tab_live, tab_cats, tab_league, tab_games, tab_fa, tab_trends = st.tabs(
+    ["This week", "Categories", "League", "Games & lineups", "Free agents", "Trends"])
+
+# ---------------------------------------------------------------- this week
+
+with tab_live:
+    lv = live_week(day, version, demo, n_sims, me_id)
+    if lv is None:
+        st.info("No matchup is in progress for this team.")
+    else:
+        lv_opp = teams[lv["opp_id"]]
+        played = lv["days_total"] - lv["days_left"]
+        st.subheader(f"Week {lv['mp']}: {me_name} vs {lv_opp}")
+        st.caption(f"{lv['first_day']:%a %b %d} – {lv['last_day']:%a %b %d} · day {min(played + 1, lv['days_total'])} "
+                   f"of {lv['days_total']} · {lv['days_left']} days left incl. today · data from {day}. "
+                   "Always the live week vs your scheduled opponent, whatever the sidebar says.")
+        w, l, t = lv["score_now"]
+        sm, so = lv["starts_left"]
+        k = st.columns(4)
+        k[0].metric("Score now", f"{w}–{l}–{t}" if lv["started"] else "not started",
+                    help="Categories you lead, trail and are tied in with the totals ESPN has recorded so far")
+        k[1].metric("Projected final", f"{lv['expected_cats']:.1f} cats", help="Expected categories won by Sunday")
+        k[2].metric("Chance to win the week", f"{lv['p_win']:.0%}")
+        k[3].metric("Starts left", f"{sm} vs {so}", delta=sm - so,
+                    help="Players you can start for the rest of the week after lineup limits")
+        st.caption(f"Starting today: {lv['starts_today'][0]} for you, {lv['starts_today'][1]} for {lv_opp}.")
+
+        cats = lv["cats"]
+        groups = {s: cats[cats["status"] == s]["category"].tolist() for s in STATUS_ICON}
+        st.markdown("  \n".join(
+            f"{STATUS_ICON[s]} **{s}:** {', '.join(groups[s])}" for s in STATUS_ICON if groups[s]))
+        if groups["Swing"]:
+            st.caption("Swing categories are where a streamer, a lineup change or benching a risky player "
+                       "can still change the result.")
+
+        c1, c2 = st.columns([1, 1])
+        c1.plotly_chart(pwin_chart(cats), width="stretch", config={"displayModeBar": False}, key="live-pwin")
+
+        def show(row, col):
+            v = row[col]
+            if v is None or pd.isna(v):
+                return "–"
+            return f"{v:.1%}" if row["pct"] else f"{v:,.0f}"
+        view = pd.DataFrame({
+            "Category": cats["category"],
+            "Now (you – opp)": [f"{show(r, 'me_now')} – {show(r, 'opp_now')}" for _, r in cats.iterrows()],
+            "Projected final": [f"{show(r, 'me_final')} – {show(r, 'opp_final')}" for _, r in cats.iterrows()],
+            "Status": [f"{STATUS_ICON[s]} {s}" for s in cats["status"]],
+        }).loc[cats["p_win"].sort_values().index]
+        c2.dataframe(view, hide_index=True, width="stretch", height=36 * len(view) + 40)
+        st.caption("Projected final = totals already recorded + the average of the simulated remaining days. "
+                   "TO: lower is better.")
 
 # --------------------------------------------------------------- categories
 
