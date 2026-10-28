@@ -55,7 +55,8 @@ cats = ordered_categories(sim.cat_ids)
 weights = category_weights(cats)
 with st.expander("Teams at a glance", expanded=True):
     st.caption("Each team's roster summed (season so far, per game, every rostered player). "
-               "Blue = the roster is strong in that category, red = weak.")
+               "Blue = the roster is strong in that category, red = weak. Totals count all 9 categories for "
+               "every team; your weights only change your own row's second number.")
     st.plotly_chart(team_heatmap(overview(day, version), cats, me_id, weights), width="stretch",
                     config={"displayModeBar": False}, key="overview")
 
@@ -71,8 +72,13 @@ if pick == FREE_AGENTS:
     contrib = contrib[contrib["gp"] >= min_gp].head(n)
     show_contributions(sim, contrib, weekly_note="the free-agent list", key="fa", summary=False,
                        weights=weights)
-else:
+elif pick == me_id:
     show_contributions(sim, contrib, weekly_note="this roster", key=f"team-{pick}", weights=weights)
+else:
+    st.caption(f"Totals for {teams[pick]}'s players count all 9 categories equally (your punt is yours, not "
+               "theirs). Your weights apply in the 'If they played for' section below.")
+    show_contributions(sim, contrib, weekly_note="this roster", key=f"team-{pick}",
+                       weights={c: 1.0 for c in cats})
 
 if pick != me_id and me_id in teams:
     st.divider()

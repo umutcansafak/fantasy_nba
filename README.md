@@ -57,7 +57,8 @@ week: games already played that week (from the game logs) + season averages × e
 The same heatmap for any team's roster or the free-agent pool (sorted by season value,
 with a minimum-games filter), plus a teams-at-a-glance view of each roster's summed
 z-scores per category. Streamlit only.
-- **Category weights** (sidebar, shared by both contribution views): totals are the weighted sum;
+- **Category weights** (sidebar, shared by both contribution views): my totals (my roster, free agents, fit)
+  are the weighted sum; other teams' rosters and the teams overview stay standard 9-cat;
   TO starts at 0 (punted, `DEFAULT_CATEGORY_WEIGHTS` in `fantasy/config.py`). Trades, pickups and
   matchup projections are unaffected.
 - **If they played for me** (`fantasy/fit.py`): each player on the selected team / free-agent list

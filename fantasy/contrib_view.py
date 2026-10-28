@@ -67,16 +67,24 @@ def contribution_heatmap(d, cats, weekly, weights=None):
     return fig
 
 
-def team_heatmap(teams: pd.DataFrame, cats: list[str], highlight: int | None = None, weights=None):
-    """Teams x categories: summed season z-scores of each roster; total uses the weights."""
-    weights = weights or {c: 1.0 for c in cats}
-    teams = teams.assign(total=weighted_total(teams, weights)).sort_values("total", ascending=False)
+def team_heatmap(teams: pd.DataFrame, cats: list[str], highlight: int | None = None, my_weights=None):
+    """Teams x categories: summed season z-scores of each roster.
+
+    Totals and ranking are standard 9-cat for everyone (other teams don't share my punts); my own row
+    also shows its total under `my_weights`.
+    """
+    teams = teams.assign(total=teams[cats].sum(axis=1)).sort_values("total", ascending=False)
+    mine = None
+    if highlight is not None and my_weights and any(w != 1 for w in my_weights.values()):
+        mine = float(weighted_total(teams[teams["team_id"] == highlight], my_weights).iloc[0])
     rows = teams.iloc[::-1]
     z = rows[cats].to_numpy(dtype=float)
     lim = max(1.0, float(np.nanmax(abs(z))))
-    labels = [f"{'▶ ' if t == highlight else ''}{n}  ({v:+.1f})" for t, n, v in zip(rows["team_id"], rows["team"], rows["total"])]
+    labels = [f"▶ {n}  ({v:+.1f}; {mine:+.1f} with your weights)" if t == highlight and mine is not None
+              else f"{'▶ ' if t == highlight else ''}{n}  ({v:+.1f})"
+              for t, n, v in zip(rows["team_id"], rows["team"], rows["total"])]
     fig = go.Figure(go.Heatmap(
-        z=z, x=[col_label(c, weights[c]) for c in cats], y=labels, zmid=0, zmin=-lim, zmax=lim, xgap=2, ygap=2,
+        z=z, x=cats, y=labels, zmid=0, zmin=-lim, zmax=lim, xgap=2, ygap=2,
         colorscale=[[0, LOSS], [0.5, MID], [1, WIN]], text=[[f"{v:+.1f}" for v in r] for r in z],
         texttemplate="%{text}", textfont=dict(size=12),
         hovertemplate="<b>%{y}</b><br>%{x}: %{z:+.1f}<extra></extra>",
@@ -111,7 +119,7 @@ def show_contributions(sim, contrib: pd.DataFrame, weekly_note: str, key: str, s
                "small GP = noisy.")
     punted = [c for c in cat_names if weights[c] == 0]
     if punted:
-        st.caption(f"Punting {', '.join(punted)}: still shown, but left out of each player's total.")
+        st.caption(f"Your punt ({', '.join(punted)}): still shown, but left out of each player's total.")
     st.plotly_chart(contribution_heatmap(shown, cat_names, weekly, weights), width="stretch",
                     config={"displayModeBar": False}, key=key)
 
