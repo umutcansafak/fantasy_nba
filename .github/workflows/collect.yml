@@ -2,7 +2,8 @@ name: Collect ESPN data and publish report
 
 on:
   schedule:
-    - cron: "0 10 * * *"   # 10:00 UTC = 5-6am ET, after the night's games are final
+    - cron: "30 6 * * *"   # 06:30 UTC: night's games final (late West Coast tips end ~05:00-06:00 UTC);
+                           # daily.json is up before 8am in Ireland (08:00 UTC winter, 07:00 UTC summer)
   workflow_dispatch:
   push:
     branches: [main]

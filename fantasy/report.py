@@ -12,7 +12,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from . import league_page, players_page, season_page, store
+from . import daily, league_page, players_page, season_page, store
 from .live import live_matchup
 from .players import ordered_categories, roster_contributions
 from .config import CATEGORIES, ROOT
@@ -406,6 +406,8 @@ by value within ESPN slot limits, and skip players listed OUT. Ties count as hal
     if not snap["matchups"].empty:
         (out / "season.html").write_text(season_page.render(
             esc(meta.get("league_name") or "Fantasy NBA"), updated, snap, me_id, CSS, nav("season")))
+    if not snap["rosters"].empty:
+        daily.write(sim, snap, me_id, store.DATA_DIR, out)
     return path
 
 

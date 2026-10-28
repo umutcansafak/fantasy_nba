@@ -31,7 +31,7 @@ player pool, and the app then shows a demo league of two drafted teams.
 ## Daily collection (GitHub Actions)
 Push this folder to GitHub. The league (286070) is public, so no secrets are
 needed; if it ever goes private, add `ESPN_S2` and `SWID` as repo secrets. `.github/workflows/collect.yml` runs every day at
-10:00 UTC and commits the new snapshot; `git pull` before opening the dashboard.
+06:30 UTC and commits the new snapshot; `git pull` before opening the dashboard.
 Run it once by hand from the Actions tab (“Run workflow”).
 
 ## Shared report (GitHub Pages)
@@ -73,6 +73,12 @@ From ESPN's recorded weekly totals: a league table of every team's season totals
 category rank (FG%/FT% from total makes / attempts), my matchup and category W-L-T over completed
 weeks, each week's per-category result, and my rank per week (Streamlit also has weekly totals vs
 the league median). The live week counts in totals and ranks but not in the record.
+
+## Morning brief data (`fantasy/daily.py` → Pages `daily.json`)
+A machine-readable summary for a scheduled Claude task: yesterday's box scores for my roster and my
+opponent's day, the live matchup (score, projection, per-category status), today's lineup and
+lineup problems, injury and roster changes since the previous snapshot, and the best free agents
+for this week's matchup with their rest-of-season fit (TO punted on my side).
 
 ## How the projection works (`fantasy/projection.py`)
 - Week = the league's matchup period (scoring period = one day). On Sunday the default is next week.
