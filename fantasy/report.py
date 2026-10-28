@@ -174,8 +174,9 @@ def heat_cell(v, lim):
 def players_html(sim, snap, me_id):
     """Each rostered player's z-score per category, per game and weighted by games left this week."""
     mp = snap["meta"].get("current_matchup_period") or next_matchup_period(snap["meta"])
-    periods = sim.periods_for(mp) or sim.periods_for(next_matchup_period(snap["meta"]))
-    d = roster_contributions(sim, me_id, periods)
+    if not sim.periods_for(mp):
+        mp = next_matchup_period(snap["meta"])
+    d = roster_contributions(sim, me_id, mp)
     if d.empty:
         return ""
     cats = ordered_categories(sim.cat_ids)
@@ -186,16 +187,16 @@ def players_html(sim, snap, me_id):
             f"<tr><td>{esc(r['name'])}"
             + ("" if r["injury_status"] == "ACTIVE" else f" <span class=muted>{esc(r['injury_status'].replace('_', ' ').lower())}</span>")
             + f"</td><td class=z>{r['gp']}</td><td class=z>{'–' if pd.isna(r['total']) else format(r['total'], '+.1f')}</td>"
-            + (f"<td class=z>{r['exp_games']:.1f}</td>" if weekly else "")
+            + (f"<td class=z>{r['played_games']} + {r['exp_games']:.1f}</td>" if weekly else "")
             + "".join(heat_cell(r[c], lim) for c in cats) + "</tr>"
             for _, r in view.iterrows())
-        head = ("<th>Player</th><th>GP</th><th>Total</th>" + ("<th>Games</th>" if weekly else "")
+        head = ("<th>Player</th><th>GP</th><th>Total</th>" + ("<th>Played + left</th>" if weekly else "")
                 + "".join(f"<th>{esc(c)}</th>" for c in cats))
         return f"<div class='scroll'><table class='heat'><thead><tr>{head}</tr></thead><tbody>{body}</tbody></table></div>"
 
     weekly = d.copy()
-    weekly[cats] = weekly[cats].mul(weekly["exp_games"], axis=0)
-    weekly["total"] = weekly[cats].sum(axis=1, min_count=1)
+    weekly[cats] = weekly[[f"wk_{c}" for c in cats]].to_numpy()
+    weekly["total"] = weekly["wk_total"]
     weekly = weekly.sort_values("total", ascending=False, na_position="last")
     team = d[cats].sum()
     return f"""
@@ -203,9 +204,10 @@ def players_html(sim, snap, me_id):
   <h2>My players</h2>
   <p class="muted">This season's games only, no projections. How each player helps (blue) or hurts (red) every
      category: z-score vs this season's top 200 scorers, so +1 = one standard deviation better than average.
-     TO is flipped; FG%/FT% weigh shooting volume. GP = games played; small GP = noisy.</p>
+     TO is flipped; FG%/FT% weigh shooting volume. GP = games played; small GP = noisy.
+     The week view adds up the games already played this week and season averages × expected starts left.</p>
   <div class="seg" role="tablist">
-    <button class="on" data-show="pg">Season so far</button><button data-show="wk">This week (× games left)</button></div>
+    <button class="on" data-show="pg">Season so far</button><button data-show="wk">Week {mp}: played + rest</button></div>
   <div data-view="pg">{table(d, False)}</div>
   <div data-view="wk" hidden>{table(weekly, True)}</div>
   <p><b>Roster in a nutshell (season so far, per game):</b> strongest

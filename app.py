@@ -117,9 +117,11 @@ def contribution_heatmap(d, cats, weekly):
     z = rows[cats].to_numpy(dtype=float)
     z = np.where(abs(z) < 0.05, 0.0, z)  # no "-0.0"
     lim = max(1.0, float(np.nanmax(abs(z)))) if weekly and not np.isnan(z).all() else 3.0
-    labels = [f"{n}  ({'no games' if pd.isna(t) else f'{t:+.1f}'}, {g} GP)"
+    games = ([f"{pg} played + {eg:.1f} left" for pg, eg in zip(rows["played_games"], rows["exp_games"])] if weekly
+             else [f"{g} GP" for g in rows["gp"]])
+    labels = [f"{n}  ({'no games' if pd.isna(t) else f'{t:+.1f}'}, {g})"
               + (f" · {s.replace('_', ' ').lower()}" if s != "ACTIVE" else "")
-              for n, t, g, s in zip(rows["name"], rows["total"], rows["gp"], rows["injury_status"])]
+              for n, t, g, s in zip(rows["name"], rows["total"], games, rows["injury_status"])]
     def raw(r, c):
         v = r[f"raw_{c}"]
         if pd.isna(v):
@@ -128,7 +130,8 @@ def contribution_heatmap(d, cats, weekly):
             return f"{v:.1%} on {r[f'att_{c}']:.1f} att"
         return f"{v:.1f}"
     hover = [[f"<b>{r['name']}</b><br>{c}: {raw(r, c)} per game<br>"
-              + (f"{r[c]:+.1f} over {r['exp_games']:.1f} games left" if weekly else f"{r[c]:+.1f} vs average")
+              + (f"{r[c]:+.1f} this week ({r['played_games']} played + {r['exp_games']:.1f} expected)" if weekly
+                 else f"{r[c]:+.1f} vs average")
               for c in cats] for _, r in rows.iterrows()]
     fig = go.Figure(go.Heatmap(
         z=z, x=cats, y=labels, zmid=0, zmin=-lim, zmax=lim, xgap=2, ygap=2,
@@ -294,15 +297,18 @@ with tab_cats:
 with tab_players:
     mode = st.segmented_control("Show", ["Season so far", "This week"], default="Season so far", key="contrib_mode",
                                 help="Season so far: his actual per-game averages this season vs the top 200 scorers. "
-                                     "This week: the same, times the games he is expected to start in the selected week.")
+                                     "This week: the games he already played in the selected week, plus his season "
+                                     "averages times the games he is expected to start in the rest of it.")
     weekly = mode == "This week"
-    contrib = roster_contributions(sim, me_id, periods)
+    contrib = roster_contributions(sim, me_id, mp)
     cat_names = ordered_categories(sim.cat_ids)
     shown = contrib.copy()
     if weekly:
-        shown[cat_names] = shown[cat_names].mul(shown["exp_games"], axis=0)
-        shown["total"] = shown[cat_names].sum(axis=1, min_count=1)
+        shown[cat_names] = shown[[f"wk_{c}" for c in cat_names]].to_numpy()
+        shown["total"] = shown["wk_total"]
         shown = shown.sort_values("total", ascending=False, na_position="last")
+        st.caption("This week = z-scores of the games already played this week (every game by a player now on "
+                   "your roster, even on the bench) + season averages × expected starts for the days left.")
     st.caption("Only this season's games, no projections. Each cell is a z-score against this season's top 200 "
                "scorers: +1 means one standard deviation better than average in that category, negative means he "
                "pulls you down. TO is flipped (more turnovers = red). FG%/FT% account for volume: a 45% shooter on "

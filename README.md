@@ -50,8 +50,8 @@ Swing (35–65%), Leaning loss or Lost (≤10%) for the rest of the week.
 ## My players (`fantasy/players.py`)
 A heatmap of every rostered player's z-score per category from this season's actual
 per-game averages only (no ESPN projection), against this season's top 200 scorers
-(blue helps, red hurts; TO flipped; FG%/FT% weighted by attempts), per game or multiplied
-by the games he is expected to start this week. On both the dashboard and the Pages report.
+(blue helps, red hurts; TO flipped; FG%/FT% weighted by attempts), per game or for the
+week: games already played that week (from the game logs) + season averages × expected starts left. On both the dashboard and the Pages report.
 
 ## How the projection works (`fantasy/projection.py`)
 - Week = the league's matchup period (scoring period = one day). On Sunday the default is next week.

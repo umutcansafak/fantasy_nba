@@ -45,25 +45,43 @@ def blended_rates(players: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
-def category_zscores(rates: pd.DataFrame, cat_ids: list[str], pool_size: int = 200) -> pd.DataFrame:
-    """Per-category z-scores vs the top-`pool_size` players, signed so positive always helps.
+def zscore_params(rates: pd.DataFrame, cat_ids: list[str], pool_size: int = 200) -> dict:
+    """Reference mean/std per category from the top-`pool_size` scorers in `rates`."""
+    ref = rates.sort_values("PTS", ascending=False).head(pool_size)
+    params = {}
+    for cid in cat_ids:
+        cat = CATEGORIES[cid]
+        pct = None
+        if "ratio" in cat:
+            made, att = cat["ratio"]
+            pct = ref[made].sum() / max(ref[att].sum(), 1e-9)
+            ref_col = ref[made] - pct * ref[att]
+        else:
+            ref_col = ref[cat["name"]]
+        params[cat["name"]] = (cat, pct, ref_col.mean(), ref_col.std() or 1.0)
+    return params
+
+
+def apply_zscores(rows: pd.DataFrame, params: dict) -> pd.DataFrame:
+    """z-scores of any per-game rows (season averages or single games), signed so positive always helps.
 
     Ratio cats are volume-weighted: makes above what a league-average shooter makes on the same attempts.
     """
-    ref = rates.sort_values("PTS", ascending=False).head(pool_size)
-    out = pd.DataFrame(index=rates.index)
-    for cid in cat_ids:
-        cat = CATEGORIES[cid]
-        if "ratio" in cat:
+    out = pd.DataFrame(index=rows.index)
+    for name, (cat, pct, mean, std) in params.items():
+        if pct is not None:
             made, att = cat["ratio"]
-            league_pct = ref[made].sum() / max(ref[att].sum(), 1e-9)
-            col = rates[made] - league_pct * rates[att]
-            ref_col = ref[made] - league_pct * ref[att]
+            col = rows[made] - pct * rows[att]
         else:
-            col, ref_col = rates[cat["name"]], ref[cat["name"]]
-        z = (col - ref_col.mean()) / (ref_col.std() or 1.0)
-        out[cat["name"]] = -z if cat.get("lower_is_better") else z
+            col = rows[name]
+        z = (col - mean) / std
+        out[name] = -z if cat.get("lower_is_better") else z
     return out
+
+
+def category_zscores(rates: pd.DataFrame, cat_ids: list[str], pool_size: int = 200) -> pd.DataFrame:
+    """Per-category z-scores vs the top-`pool_size` players in `rates`."""
+    return apply_zscores(rates, zscore_params(rates, cat_ids, pool_size))
 
 
 def player_values(rates: pd.DataFrame, cat_ids: list[str], pool_size: int = 200) -> pd.Series:
