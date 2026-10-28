@@ -162,6 +162,8 @@ def live_html(sim, snap, me_id):
 
 def heat_cell(v, lim):
     """Diverging cell: blue helps, red hurts; intensity mixes the pole into the card surface."""
+    if pd.isna(v):
+        return '<td class="z muted">–</td>'
     v = v if abs(v) >= 0.05 else 0.0  # no "-0.0"
     share = min(abs(v) / lim, 1) * 70
     pole = "--pw" if v >= 0 else "--pl"
@@ -179,33 +181,34 @@ def players_html(sim, snap, me_id):
     cats = ordered_categories(sim.cat_ids)
 
     def table(view, weekly):
-        lim = max(1.0, float(view[cats].abs().to_numpy().max())) if weekly else 3.0
+        lim = max(1.0, float(np.nanmax(view[cats].abs().to_numpy(dtype=float)))) if weekly and view[cats].notna().any().any() else 3.0
         body = "".join(
             f"<tr><td>{esc(r['name'])}"
             + ("" if r["injury_status"] == "ACTIVE" else f" <span class=muted>{esc(r['injury_status'].replace('_', ' ').lower())}</span>")
-            + f"</td><td class=z>{r['total']:+.1f}</td>"
+            + f"</td><td class=z>{r['gp']}</td><td class=z>{'–' if pd.isna(r['total']) else format(r['total'], '+.1f')}</td>"
             + (f"<td class=z>{r['exp_games']:.1f}</td>" if weekly else "")
             + "".join(heat_cell(r[c], lim) for c in cats) + "</tr>"
             for _, r in view.iterrows())
-        head = ("<th>Player</th><th>Total</th>" + ("<th>Games</th>" if weekly else "")
+        head = ("<th>Player</th><th>GP</th><th>Total</th>" + ("<th>Games</th>" if weekly else "")
                 + "".join(f"<th>{esc(c)}</th>" for c in cats))
         return f"<div class='scroll'><table class='heat'><thead><tr>{head}</tr></thead><tbody>{body}</tbody></table></div>"
 
     weekly = d.copy()
     weekly[cats] = weekly[cats].mul(weekly["exp_games"], axis=0)
-    weekly["total"] = weekly[cats].sum(axis=1)
-    weekly = weekly.sort_values("total", ascending=False)
+    weekly["total"] = weekly[cats].sum(axis=1, min_count=1)
+    weekly = weekly.sort_values("total", ascending=False, na_position="last")
     team = d[cats].sum()
     return f"""
 <section>
   <h2>My players</h2>
-  <p class="muted">How each player helps (blue) or hurts (red) every category: z-score vs the top 200 players,
-     so +1 = one standard deviation better than average. TO is flipped; FG%/FT% weigh shooting volume.</p>
+  <p class="muted">This season's games only, no projections. How each player helps (blue) or hurts (red) every
+     category: z-score vs this season's top 200 scorers, so +1 = one standard deviation better than average.
+     TO is flipped; FG%/FT% weigh shooting volume. GP = games played; small GP = noisy.</p>
   <div class="seg" role="tablist">
-    <button class="on" data-show="pg">Per game</button><button data-show="wk">This week (× games left)</button></div>
+    <button class="on" data-show="pg">Season so far</button><button data-show="wk">This week (× games left)</button></div>
   <div data-view="pg">{table(d, False)}</div>
   <div data-view="wk" hidden>{table(weekly, True)}</div>
-  <p><b>Roster in a nutshell (per game):</b> strongest
+  <p><b>Roster in a nutshell (season so far, per game):</b> strongest
      {esc(", ".join(f"{c} {team[c]:+.1f}" for c in team.sort_values(ascending=False).index[:3]))} ·
      weakest {esc(", ".join(f"{c} {team[c]:+.1f}" for c in team.sort_values().index[:3]))}</p>
   <script>document.querySelectorAll('.seg button').forEach(b=>b.onclick=()=>{{
