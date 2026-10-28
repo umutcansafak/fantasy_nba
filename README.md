@@ -65,6 +65,8 @@ z-scores per category. Streamlit only.
   swapped in for one of my players; cells are the change in my weekly win rate per category vs the
   rest of the league (rest of season, this season's stats), and the weighted sum is extra categories
   won per week. Gains shrink in categories I already win.
+- Also published as `players.html` on the Pages site (`fantasy/players_page.py`): same overview,
+  roster heatmaps and fit table, with the default weights (TO punted) baked in.
 
 ## How the projection works (`fantasy/projection.py`)
 - Week = the league's matchup period (scoring period = one day). On Sunday the default is next week.

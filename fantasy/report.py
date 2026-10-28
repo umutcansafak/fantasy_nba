@@ -12,7 +12,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from . import league_page, store
+from . import league_page, players_page, store
 from .live import live_matchup
 from .players import ordered_categories, roster_contributions
 from .config import CATEGORIES, ROOT
@@ -363,7 +363,8 @@ def report_weeks(meta) -> list[tuple[int, str]]:
 
 
 def nav(active: str) -> str:
-    links = (("index", "index.html", "My matchup"), ("league", "league.html", "League view"))
+    links = (("index", "index.html", "My matchup"), ("league", "league.html", "League view"),
+             ("players", "players.html", "Player contributions"))
     return '<nav class="top">' + "".join(
         f'<a href="{href}"{" class=on" if key == active else ""}>{label}</a>' for key, href, label in links) + "</nav>"
 
@@ -398,6 +399,10 @@ by value within ESPN slot limits, and skip players listed OUT. Ties count as hal
     league_weeks = [w for w in (league_page.week_data(sim, snap, mp, title) for mp, title in weeks) if w]
     (out / "league.html").write_text(league_page.render(
         esc(meta.get("league_name") or "Fantasy NBA"), updated, me_id, snap["teams"], league_weeks, CSS, nav("league")))
+    if not snap["rosters"].empty:
+        (out / "players.html").write_text(players_page.render(
+            esc(meta.get("league_name") or "Fantasy NBA"), updated, players_page.build_data(sim, snap, me_id),
+            CSS, nav("players")))
     return path
 
 
