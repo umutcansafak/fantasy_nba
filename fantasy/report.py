@@ -13,6 +13,7 @@ import numpy as np
 import pandas as pd
 
 from . import league_page, store
+from .live import live_matchup
 from .config import CATEGORIES, ROOT
 from .projection import (Simulator, actual_totals, compare, next_matchup_period, opponent_of,
                          with_actuals)
@@ -88,6 +89,76 @@ def daily_svg(me_daily, opp_daily, dates, me_name, opp_name):
     return "".join(parts)
 
 
+STATUS_ICON = {"Locked": "🔒", "Leaning win": "↗", "Swing": "⚖", "Leaning loss": "↘", "Lost": "✕"}
+
+
+def pwin_svg(cats):
+    """One dot per category on a 0-100% win-probability axis, swing zone (35-65%) shaded."""
+    d = cats.sort_values("p_win", ascending=False)
+    W, L, R, top, rh = 440, 40, 125, 20, 26
+    H = top + rh * len(d) + 28
+    x = lambda p: L + p * (W - L - R)
+    parts = [f'<svg viewBox="0 0 {W} {H}" role="img" aria-label="Chance to win each category">',
+             f'<rect class="zone" x="{x(.35):.1f}" y="{top - 6}" width="{x(.65) - x(.35):.1f}" height="{rh * len(d) + 6}"/>',
+             f'<text class="tick" x="{x(.5):.1f}" y="{top - 9}" text-anchor="middle">swing zone</text>']
+    for t in (0, .25, .5, .75, 1):
+        parts.append(f'<line x1="{x(t):.1f}" x2="{x(t):.1f}" y1="{top - 6}" y2="{top + rh * len(d)}"/>'
+                     f'<text class="tick" x="{x(t):.1f}" y="{H - 8}" text-anchor="middle">{t:.0%}</text>')
+    for i, r in enumerate(d.itertuples()):
+        cy = top + rh * i + rh / 2
+        side = "pw" if r.p_win >= .65 else "pl" if r.p_win <= .35 else "ps"
+        parts.append(f'<g><title>{esc(r.category)}: {r.p_win:.0%} chance to win</title>'
+                     f'<text class="lab" x="{L - 8}" y="{cy + 4:.1f}" text-anchor="end">{esc(r.category)}</text>'
+                     f'<circle class="dot {side}" cx="{x(r.p_win):.1f}" cy="{cy:.1f}" r="6.5"/>'
+                     f'<text class="lab" x="{x(r.p_win) + 12:.1f}" y="{cy + 4:.1f}">{r.p_win:.0%} '
+                     f'{STATUS_ICON[r.status]} {esc(r.status)}</text></g>')
+    parts.append("</svg>")
+    return "".join(parts)
+
+
+def live_html(sim, snap, me_id):
+    """Where the live week stands: score now, projected final, and each category's status."""
+    lv = live_matchup(sim, snap, me_id)
+    if lv is None or not lv["days_left"]:
+        return ""
+    teams = snap["teams"].set_index("team_id")["name"].to_dict()
+    opp = teams[lv["opp_id"]]
+    cats = lv["cats"]
+    w, l, t = lv["score_now"]
+    sm, so = lv["starts_left"]
+    played = lv["days_total"] - lv["days_left"]
+    groups = "".join(
+        f"<li>{STATUS_ICON[s]} <b>{s}:</b> {esc(', '.join(g))}</li>"
+        for s in STATUS_ICON if (g := cats[cats["status"] == s]["category"].tolist()))
+    def v(r, col):
+        return fmt(r["category"], r[col])
+    rows = "".join(
+        f"<tr><td>{esc(r['category'])}</td><td>{v(r, 'me_now')} – {v(r, 'opp_now')}</td>"
+        f"<td>{v(r, 'me_final')} – {v(r, 'opp_final')}</td><td>{STATUS_ICON[r['status']]} {esc(r['status'])}</td></tr>"
+        for _, r in cats.sort_values("p_win").iterrows())
+    return f"""
+<section>
+  <h2>Right now: {esc(teams[me_id])} <span class="vs">vs</span> {esc(opp)}</h2>
+  <p class="muted">Week {lv['mp']} · {lv['first_day']:%a %b %d} – {lv['last_day']:%a %b %d} ·
+     day {played + 1} of {lv['days_total']} · {lv['days_left']} days left incl. today</p>
+  <div class="kpis">
+    <div><span>Score now (W–L–T)</span><b>{f"{w}–{l}–{t}" if lv['started'] else "not started"}</b></div>
+    <div><span>Projected final</span><b>{lv['expected_cats']:.1f}<small> cats</small></b></div>
+    <div><span>Chance to win the week</span><b>{lv['p_win']:.0%}</b></div>
+    <div><span>Starts left (me / them)</span><b>{sm}<small> / {so}</small></b>
+      <small class="muted">today {lv['starts_today'][0]} / {lv['starts_today'][1]}</small></div>
+  </div>
+  <ul class="status">{groups}</ul>
+  <div class="split">
+    <div class="chart">{pwin_svg(cats)}</div>
+    <div class="scroll"><table><thead><tr><th>Cat</th><th>Now (me – opp)</th><th>Projected final</th><th>Status</th></tr></thead>
+      <tbody>{rows}</tbody></table></div>
+  </div>
+  <p class="muted">Locked ≥ 90% · Swing 35–65% · Lost ≤ 10% chance to win the category by Sunday.
+     Projected final = totals recorded so far + the average simulated rest of the week. TO: lower is better.</p>
+</section>"""
+
+
 def section(sim, snap, me_id, mp, title, n_fa):
     teams = snap["teams"].set_index("team_id")["name"].to_dict()
     opp_id = opponent_of(snap, me_id, mp)
@@ -150,15 +221,17 @@ def section(sim, snap, me_id, mp, title, n_fa):
                        f"<th>Δ exp. cats</th><th>Δ P(win)</th><th>Biggest gains</th></tr></thead>"
                        f"<tbody>{fa_rows}</tbody></table></div>")
 
+    if live:
+        title += ", category ranges"
     return f"""
 <section>
   <h2>{esc(title)}: {esc(me_name)} <span class="vs">vs</span> {esc(opp_name)}</h2>
   <p class="muted">Week {mp} · {span} · {note}</p>
-  <div class="kpis">
+  {"" if live else f"""<div class="kpis">
     <div><span>Expected categories</span><b>{overall['expected_cats_won']:.1f}<small> / {len(table)}</small></b></div>
     <div><span>P(win matchup)</span><b>{overall['p_win_matchup']:.0%}</b></div>
-    <div><span>{'Starts left' if live else 'Starts'} (me / them)</span><b>{overall['me_starts']}<small> / {overall['opp_starts']}</small></b></div>
-  </div>
+    <div><span>Starts (me / them)</span><b>{overall['me_starts']}<small> / {overall['opp_starts']}</small></b></div>
+  </div>"""}
   {f"<p class='focus'><b>Focus on:</b> {esc(', '.join(swing))}</p>" if swing else ""}
   <p class="legend"><i class="sw me"></i>{esc(me_name)} <i class="sw opp"></i>{esc(opp_name)}
      <span class="muted">· band = middle 80% of simulated weeks, dot = expected · closest races first</span></p>
@@ -177,9 +250,9 @@ def section(sim, snap, me_id, mp, title, n_fa):
 
 CSS = """
 :root{--bg:#fcfcfb;--card:#ffffff;--ink:#0b0b0b;--ink2:#52514e;--muted:#6f6e69;--line:#e6e5e0;
---me:#2a78d6;--opp:#eb6834;--win:#1f7a3d;--loss:#b3261e;--swing:#8a5a00;color-scheme:light}
+--me:#2a78d6;--opp:#eb6834;--pw:#2a78d6;--pl:#e34948;--ps:#8a8984;--win:#1f7a3d;--loss:#b3261e;--swing:#8a5a00;color-scheme:light}
 @media (prefers-color-scheme:dark){:root{--bg:#121211;--card:#1a1a19;--ink:#f0efec;--ink2:#c3c2b7;
---muted:#9b9a92;--line:#2f2f2c;--me:#3987e5;--opp:#d95926;--win:#6cc287;--loss:#f08b84;--swing:#e3b04b;color-scheme:dark}}
+--muted:#9b9a92;--line:#2f2f2c;--me:#3987e5;--opp:#d95926;--pw:#3987e5;--pl:#e66767;--win:#6cc287;--loss:#f08b84;--swing:#e3b04b;color-scheme:dark}}
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif}
 main{max-width:1120px;margin:0 auto;padding:24px 16px 64px}
 h1{font-size:28px;margin:0 0 4px}h2{font-size:21px;margin:40px 0 2px}h3{font-size:16px;margin:28px 0 8px}
@@ -208,6 +281,10 @@ details{margin:12px 0}summary{cursor:pointer;color:var(--ink2)}
 th,td{text-align:left;padding:6px 10px;border-bottom:1px solid var(--line);white-space:nowrap}
 th{color:var(--ink2);font-weight:600}td:nth-child(n+3){font-variant-numeric:tabular-nums}
 footer{margin-top:48px;color:var(--muted);font-size:13px}
+.status{list-style:none;padding:0;margin:8px 0 16px}.status li{margin:2px 0}
+.split{display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:16px;align-items:start}
+.zone{fill:var(--ps);opacity:.14}.dot.pw{fill:var(--pw)}.dot.pl{fill:var(--pl)}.dot.ps{fill:var(--ps)}
+.kpis div small.muted{display:block;font-size:12px}
 nav.top{display:flex;gap:16px;margin-bottom:16px;font-size:14px}nav.top a{color:var(--ink2)}nav.top a.on{color:var(--ink);font-weight:600}
 """
 
@@ -243,6 +320,7 @@ def build(out: Path, n_sims: int = 5000, n_fa: int = 20) -> Path:
 {nav('index')}
 <h1>{esc(meta.get('league_name') or 'Fantasy NBA')} matchup report</h1>
 <p class="muted">Updated {updated} · {n_sims:,} simulated weeks from players' real box scores</p>
+{live_html(sim, snap, me_id)}
 {''.join(sections)}
 <footer>Projections bootstrap each starter's recent games (this season weighted above last; last season's games
 rescaled to full-season averages for players with 50+ games), fill daily lineups

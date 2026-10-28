@@ -36,7 +36,8 @@ Run it once by hand from the Actions tab (“Run workflow”).
 
 ## Shared report (GitHub Pages)
 After collecting, the same workflow runs `python -m fantasy.report` and publishes
-`site/index.html` to https://umutcansafak.github.io/fantasy_nba/: my matchup for
+`site/index.html` to https://umutcansafak.github.io/fantasy_nba/: where the live week stands (score now,
+projected final, Locked/Swing/Lost per category), my matchup for
 the live week (ESPN totals so far + simulated remaining days) and next week's
 preview, with free-agent pickups. Build it locally with `python -m fantasy.report`.
 
