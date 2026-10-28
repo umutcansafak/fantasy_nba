@@ -3,7 +3,8 @@ import streamlit as st
 
 from fantasy import store
 from fantasy.app_data import DATA_ROOT, load, simulator, snapshot_version
-from fantasy.contrib_view import show_contributions, team_heatmap
+from fantasy.contrib_view import category_weights, show_contributions, show_fit, team_heatmap
+from fantasy.fit import FitModel
 from fantasy.players import free_agent_contributions, ordered_categories, roster_contributions, team_overview
 from fantasy.projection import next_matchup_period
 
@@ -15,6 +16,11 @@ FREE_AGENTS = -1
 @st.cache_data(show_spinner="Scoring every roster…", max_entries=4)
 def overview(day, version):
     return team_overview(simulator(day, version, False, 1000))
+
+
+@st.cache_resource(show_spinner="Modelling every roster's week…", max_entries=2)
+def fit_model(day, version):
+    return FitModel(simulator(day, version, False, 1000))
 
 
 @st.cache_data(show_spinner="Scoring players…", max_entries=24)
@@ -46,10 +52,11 @@ st.title("Player contributions")
 st.caption(f"This season's games only · data from {day} · week view = week {mp}")
 
 cats = ordered_categories(sim.cat_ids)
+weights = category_weights(cats)
 with st.expander("Teams at a glance", expanded=True):
     st.caption("Each team's roster summed (season so far, per game, every rostered player). "
                "Blue = the roster is strong in that category, red = weak.")
-    st.plotly_chart(team_heatmap(overview(day, version), cats, me_id), width="stretch",
+    st.plotly_chart(team_heatmap(overview(day, version), cats, me_id, weights), width="stretch",
                     config={"displayModeBar": False}, key="overview")
 
 options = [t for t in teams if t != me_id] + [FREE_AGENTS] + ([me_id] if me_id in teams else [])
@@ -62,6 +69,13 @@ if pick == FREE_AGENTS:
     n = c1.slider("Players shown", 10, 60, 25, step=5)
     min_gp = c2.slider("Minimum games played", 1, int(max(contrib["gp"].max(), 1)), 1)
     contrib = contrib[contrib["gp"] >= min_gp].head(n)
-    show_contributions(sim, contrib, weekly_note="the free-agent list", key="fa", summary=False)
+    show_contributions(sim, contrib, weekly_note="the free-agent list", key="fa", summary=False,
+                       weights=weights)
 else:
-    show_contributions(sim, contrib, weekly_note="this roster", key=f"team-{pick}")
+    show_contributions(sim, contrib, weekly_note="this roster", key=f"team-{pick}", weights=weights)
+
+if pick != me_id and me_id in teams:
+    st.divider()
+    st.subheader(f"If they played for {teams[me_id]}")
+    show_fit(fit_model(day, version), sim, me_id, contrib, team_contrib(day, version, me_id, mp), weights,
+             key=f"fit-{pick}")

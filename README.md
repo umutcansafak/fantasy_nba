@@ -57,6 +57,13 @@ week: games already played that week (from the game logs) + season averages × e
 The same heatmap for any team's roster or the free-agent pool (sorted by season value,
 with a minimum-games filter), plus a teams-at-a-glance view of each roster's summed
 z-scores per category. Streamlit only.
+- **Category weights** (sidebar, shared by both contribution views): totals are the weighted sum;
+  TO starts at 0 (punted, `DEFAULT_CATEGORY_WEIGHTS` in `fantasy/config.py`). Trades, pickups and
+  matchup projections are unaffected.
+- **If they played for me** (`fantasy/fit.py`): each player on the selected team / free-agent list
+  swapped in for one of my players; cells are the change in my weekly win rate per category vs the
+  rest of the league (rest of season, this season's stats), and the weighted sum is extra categories
+  won per week. Gains shrink in categories I already win.
 
 ## How the projection works (`fantasy/projection.py`)
 - Week = the league's matchup period (scoring period = one day). On Sunday the default is next week.

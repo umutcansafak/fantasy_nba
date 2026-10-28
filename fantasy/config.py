@@ -27,6 +27,8 @@ CATEGORIES = {
     "20": {"name": "FT%", "ratio": ("FTM", "FTA")},
     "11": {"name": "TO", "lower_is_better": True},
 }
+# Starting weights on the player-contribution pages (adjustable there); TO is punted.
+DEFAULT_CATEGORY_WEIGHTS = {"TO": 0.0}
 DEFAULT_CATEGORY_IDS = ["19", "20", "17", "6", "3", "2", "1", "11", "0"]
 
 # Lineup slot ids (ESPN). BE/IR never score.
