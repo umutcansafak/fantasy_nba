@@ -68,6 +68,12 @@ z-scores per category. Streamlit only.
 - Also published as `players.html` on the Pages site (`fantasy/players_page.py`): same overview,
   roster heatmaps and fit table, with the default weights (TO punted) baked in.
 
+## Season so far (`fantasy/season.py`, `pages/3_Season.py`, Pages `season.html`)
+From ESPN's recorded weekly totals: a league table of every team's season totals coloured by
+category rank (FG%/FT% from total makes / attempts), my matchup and category W-L-T over completed
+weeks, each week's per-category result, and my rank per week (Streamlit also has weekly totals vs
+the league median). The live week counts in totals and ranks but not in the record.
+
 ## How the projection works (`fantasy/projection.py`)
 - Week = the league's matchup period (scoring period = one day). On Sunday the default is next week.
 - Each day, players whose NBA team plays are ranked by a 9-cat z-score value

@@ -183,8 +183,8 @@ k[1].metric("P(win matchup)", f"{overall['p_win_matchup']:.0%}")
 k[2].metric("My starts", overall["me_starts"], delta=overall["me_starts"] - overall["opp_starts"])
 k[3].metric("Opponent starts", overall["opp_starts"])
 
-tab_live, tab_cats, tab_players, tab_league, tab_games, tab_fa, tab_trends = st.tabs(
-    ["This week", "Categories", "My players", "League", "Games & lineups", "Free agents", "Trends"])
+tab_live, tab_cats, tab_players, tab_league, tab_games, tab_fa = st.tabs(
+    ["This week", "Categories", "My players", "League", "Games & lineups", "Free agents"])
 
 # ---------------------------------------------------------------- this week
 
@@ -341,34 +341,3 @@ with tab_fa:
                 })
             st.caption("Deltas are versus your current roster for this week, using the same simulated games for "
                        "everyone else, so differences come from the swap itself.")
-
-# ------------------------------------------------------------------ trends
-
-with tab_trends:
-    m = s.get("matchups")
-    if m is None or m.empty or m["stat_id"].isna().all():
-        st.info("Weekly results appear here once your league has completed matchups.")
-    else:
-        m = m.dropna(subset=["stat_id", "score"])
-        cur = s["meta"].get("current_matchup_period") or m["matchup_period"].max()
-        m = m[m["matchup_period"] <= cur]
-        cols = st.columns(3)
-        for i, cid in enumerate(sim.cat_ids):
-            name = CATEGORIES[cid]["name"]
-            d = m[m["stat_id"] == cid]
-            if d.empty:
-                continue
-            league_med = d.groupby("matchup_period")["score"].median()
-            mine = d[d["team_id"] == me_id].set_index("matchup_period")["score"]
-            fig = go.Figure()
-            fig.add_trace(go.Scatter(x=league_med.index, y=league_med.values, name="League median", mode="lines",
-                                     line=dict(color="#8a8984", width=2, dash="dot")))
-            fig.add_trace(go.Scatter(x=mine.index, y=mine.values, name=me_name, mode="lines+markers",
-                                     line=dict(color=ME, width=2), marker=dict(size=8)))
-            fig.update_layout(title=dict(text=f"<b>{name}</b>", font=dict(size=14)), height=220,
-                              margin=dict(l=10, r=10, t=40, b=20), hovermode="x unified",
-                              legend=dict(orientation="h", y=-0.25), xaxis=dict(title=None, dtick=1),
-                              yaxis=dict(tickformat=".1%" if name.endswith("%") else ",.0f"))
-            cols[i % 3].plotly_chart(fig, width="stretch", config={"displayModeBar": False},
-                                     key=f"trend-{name}")
-        st.caption("Your weekly category totals (blue) against the league median (dotted). The current week is partial.")
