@@ -132,7 +132,12 @@ function teamResult(D, ids) {
 PAGE_CSS = """
 .heat td.z{text-align:center;font-variant-numeric:tabular-nums;min-width:52px}.heat th{text-align:center}
 .heat th:first-child,.heat td:first-child{text-align:left}.heat tr.add td:first-child{font-weight:600}
-.heat tr.sum td{font-weight:600;border-top:2px solid var(--line)}.heat tr.gone td:first-child{color:var(--muted)}
+.heat tr.sum td{font-weight:600;border-top:2px solid var(--line)}
+:root{--add:#e0a919}
+.heat tr.add td:first-child{box-shadow:inset 3px 0 0 var(--add);background:color-mix(in oklab,var(--add) 12%,var(--card))}
+.heat tr.gone td:first-child{box-shadow:inset 3px 0 0 var(--loss);background:color-mix(in oklab,var(--loss) 9%,var(--card))}
+.key{display:inline-block;width:10px;height:10px;border-radius:2px;margin:0 4px 0 2px;vertical-align:-1px}
+.key.add{background:var(--add)}.key.gone{background:var(--loss)}
 .controls{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:12px 0}
 input,button.b{font:inherit;padding:7px 10px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--ink)}
 .search{position:relative;flex:1;min-width:220px;max-width:460px}.search input{width:100%}
@@ -284,11 +289,14 @@ function heatmap(ids, now, next) {
     ? `How much each player adds to <b>this</b> roster: your chance of winning each category with him minus without him
        (percentage points, vs the league in an average week). Depends on the team around him: little where you
        already win, a lot where you're close. Total = extra categories per week${D.weights.some(w => w === 0) ? ' (punted categories left out)' : ''}.
-       Players you remove show what they add to your current team, i.e. what you give up.`
+       Players you remove are ranked in the same list by what they add to your current team, i.e. what you give up.`
     : `Per-game z-scores vs this season's top 200 scorers: the same on any team (blue helps, red hurts; TO flipped).`;
-  document.getElementById('heatnote').innerHTML += ` Added players marked ＋. GP in amber = fewer than ${D.lowGp} games, so noisy.`;
+  document.getElementById('heatnote').innerHTML += ` <span class="key add"></span>＋ added · <span class="key gone"></span>− removed.
+     GP in amber = fewer than ${D.lowGp} games, so noisy.`;
   (view === 'impact' ? impactTable : zTable)(ids, now, next);
 }
+
+const mark = id => adds.includes(id) ? ['add', '＋ '] : drops.includes(id) ? ['gone', '− '] : ['', ''];
 
 function impactTable(ids, now, next) {
   // leave-one-out: the team's win rates with everyone minus without this player
@@ -296,17 +304,16 @@ function impactTable(ids, now, next) {
     const without = teamResult(D, team.filter(x => x !== id));
     return {d: D.shown.map(i => (res.p[i] - without.p[i]) * 100), t: res.exp - without.exp};
   };
-  const stay = ids.map(id => ({p: D.byId[id], ...marginal(ids, next, id)})).sort((a, b) => b.t - a.t);
-  const leave = drops.map(id => ({p: D.byId[id], ...marginal(D.roster, now, id)}));
-  const lim = Math.max(5, ...[...stay, ...leave].flatMap(r => r.d.map(Math.abs)));
+  // one ranking: players on the new roster by what they add to it, removed ones by what they add now
+  const all = [...ids.map(id => ({p: D.byId[id], ...marginal(ids, next, id)})),
+               ...drops.map(id => ({p: D.byId[id], ...marginal(D.roster, now, id)}))].sort((a, b) => b.t - a.t);
+  const lim = Math.max(5, ...all.flatMap(r => r.d.map(Math.abs)));
   const row = ({p, d, t}, cls, mark) =>
     `<tr class="${cls}"><td>${mark}${esc(p.name)} <span class="muted">${esc(p.nba)}${p.status ? ' · ' + esc(p.status) : ''}</span></td>` +
     `<td class="z${p.gp < D.lowGp ? ' warn' : ''}">${p.gp}</td><td class="z">${sign(t, 2)}</td>${d.map(v => cell(v, lim, 0)).join('')}</tr>`;
   document.getElementById('heat').innerHTML =
     `<thead><tr><th>Player</th><th>GP</th><th>Adds / wk</th>${D.shown.map(i => `<th>${esc(D.cats[i].name)}${D.weights[i] === 0 ? ' (punted)' : ''}</th>`).join('')}</tr></thead><tbody>` +
-    stay.map(r => row(r, adds.includes(r.p.id) ? 'add' : '', adds.includes(r.p.id) ? '＋ ' : '')).join('') +
-    (leave.length ? `<tr class="sum"><td colspan="${3 + D.shown.length}">Leaving: what they add to your current team</td></tr>` +
-      leave.map(r => row(r, 'gone', '− ')).join('') : '') + '</tbody>';
+    all.map(r => row(r, ...mark(r.p.id))).join('') + '</tbody>';
 }
 
 function zTable(ids) {
@@ -315,11 +322,12 @@ function zTable(ids) {
   const sums = list => D.shown.map((_, j) => list.reduce((s, p) => s + (p.z[j] ?? 0), 0));
   const before = sums(D.roster.map(id => D.byId[id])), after = sums(ps);
   const lim = Math.max(1, ...[...before, ...after].map(Math.abs));
-  const rows = ps.map(p => ({p, t: p.z.every(v => v == null) ? null : tot([p], wShown)})).sort((a, b) => (b.t ?? -1e9) - (a.t ?? -1e9));
+  const rows = [...ps, ...drops.map(id => D.byId[id])].map(p => ({p, t: p.z.every(v => v == null) ? null : tot([p], wShown)}))
+    .sort((a, b) => (b.t ?? -1e9) - (a.t ?? -1e9));
   const total = s => s.reduce((a, v, j) => a + v * wShown[j], 0);
   document.getElementById('heat').innerHTML =
     `<thead><tr><th>Player</th><th>GP</th><th>Total</th>${D.shown.map(i => `<th>${esc(D.cats[i].name)}${D.weights[i] === 0 ? ' (punted)' : ''}</th>`).join('')}</tr></thead><tbody>` +
-    rows.map(({p, t}) => `<tr class="${adds.includes(p.id) ? 'add' : ''}"><td>${adds.includes(p.id) ? '＋ ' : ''}${esc(p.name)} <span class="muted">${esc(p.nba)}${p.status ? ' · ' + esc(p.status) : ''}</span></td>` +
+    rows.map(({p, t}) => `<tr class="${mark(p.id)[0]}"><td>${mark(p.id)[1]}${esc(p.name)} <span class="muted">${esc(p.nba)}${p.status ? ' · ' + esc(p.status) : ''}</span></td>` +
       `<td class="z${p.gp < D.lowGp ? ' warn' : ''}">${p.gp}</td><td class="z">${fmtZ(t)}</td>${p.z.map(v => cell(v, 3)).join('')}</tr>`).join('') +
     `<tr class="sum"><td>Team now</td><td></td><td class="z">${fmtZ(total(before))}</td>${before.map(v => cell(v, lim)).join('')}</tr>` +
     `<tr class="sum"><td>Team after</td><td></td><td class="z">${fmtZ(total(after))}</td>${after.map(v => cell(v, lim)).join('')}</tr>` +
