@@ -12,7 +12,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from . import daily, league_page, players_page, season_page, store
+from . import daily, lab_page, league_page, players_page, season_page, store
 from .live import live_matchup
 from .players import ordered_categories, roster_contributions
 from .config import CATEGORIES, ROOT
@@ -350,7 +350,7 @@ footer{margin-top:48px;color:var(--muted);font-size:13px}
 .seg{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden;margin:4px 0 8px}
 .seg button{background:var(--card);color:var(--ink2);border:0;padding:6px 12px;font:inherit;font-size:13px;cursor:pointer}
 .seg button.on{background:var(--ink);color:var(--bg)}
-nav.top{display:flex;gap:16px;margin-bottom:16px;font-size:14px}nav.top a{color:var(--ink2)}nav.top a.on{color:var(--ink);font-weight:600}
+nav.top{display:flex;flex-wrap:wrap;gap:8px 16px;margin-bottom:16px;font-size:14px}nav.top a{color:var(--ink2)}nav.top a.on{color:var(--ink);font-weight:600}
 """
 
 
@@ -364,7 +364,8 @@ def report_weeks(meta) -> list[tuple[int, str]]:
 
 def nav(active: str) -> str:
     links = (("index", "index.html", "My matchup"), ("league", "league.html", "League view"),
-             ("players", "players.html", "Player contributions"), ("season", "season.html", "Season"))
+             ("players", "players.html", "Player contributions"), ("lab", "lab.html", "Trade lab"),
+             ("season", "season.html", "Season"))
     return '<nav class="top">' + "".join(
         f'<a href="{href}"{" class=on" if key == active else ""}>{label}</a>' for key, href, label in links) + "</nav>"
 
@@ -403,6 +404,8 @@ by value within ESPN slot limits, and skip players listed OUT. Ties count as hal
         (out / "players.html").write_text(players_page.render(
             esc(meta.get("league_name") or "Fantasy NBA"), updated, players_page.build_data(sim, snap, me_id),
             CSS, nav("players")))
+        (out / "lab.html").write_text(lab_page.render(
+            esc(meta.get("league_name") or "Fantasy NBA"), updated, lab_page.build_data(sim, snap, me_id), CSS, nav("lab")))
     if not snap["matchups"].empty:
         (out / "season.html").write_text(season_page.render(
             esc(meta.get("league_name") or "Fantasy NBA"), updated, snap, me_id, CSS, nav("season")))

@@ -68,6 +68,14 @@ z-scores per category. Streamlit only.
 - Also published as `players.html` on the Pages site (`fantasy/players_page.py`): same overview,
   roster heatmaps and fit table, with the default weights (TO punted) baked in.
 
+## Trade lab (Pages `lab.html`, `fantasy/lab_page.py`)
+Build a hypothetical version of my roster: type any player's name and press Add, press Remove on my own
+players (equal numbers in and out). The page shows expected categories per week (TO punted), each
+category's weekly total, win % vs the league and league rank before → after, and the resulting roster's
+heatmap. Same model as the fit view, generalised to n-for-n and computed in the browser from exported
+per-player weekly moments; only my team changes. The scenario lives in the URL hash
+(`lab.html#add=<ids>&drop=<ids>`), so it can be bookmarked.
+
 ## Season so far (`fantasy/season.py`, `pages/3_Season.py`, Pages `season.html`)
 From ESPN's recorded weekly totals: a league table of every team's season totals coloured by
 category rank (FG%/FT% from total makes / attempts), my matchup and category W-L-T over completed
