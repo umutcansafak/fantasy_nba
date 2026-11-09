@@ -71,8 +71,8 @@ z-scores per category. Streamlit only.
 ## Trade lab (Pages `lab.html`, `fantasy/lab_page.py`)
 Build a hypothetical version of my roster: type part of a name or team and pick from the suggestions (accents ignored), press Remove on my own
 players (equal numbers in and out). The page shows expected categories per week (TO punted), each
-category's weekly total, win % vs the league and league rank before → after, and the resulting roster's
-heatmap. Same model as the fit view, generalised to n-for-n and computed in the browser from exported
+category's weekly total, win % vs the league and league rank before → after, and the resulting roster's heatmap: each player's impact on this roster (win % with him minus without him, removed players shown with what they add now) or his team-independent per-game z-scores.
+Same model as the fit view, generalised to n-for-n and computed in the browser from exported
 per-player weekly moments; only my team changes. The scenario lives in the URL hash
 (`lab.html#add=<ids>&drop=<ids>`), so it can be bookmarked.
 

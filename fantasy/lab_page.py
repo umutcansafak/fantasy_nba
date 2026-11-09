@@ -132,7 +132,7 @@ function teamResult(D, ids) {
 PAGE_CSS = """
 .heat td.z{text-align:center;font-variant-numeric:tabular-nums;min-width:52px}.heat th{text-align:center}
 .heat th:first-child,.heat td:first-child{text-align:left}.heat tr.add td:first-child{font-weight:600}
-.heat tr.sum td{font-weight:600;border-top:2px solid var(--line)}
+.heat tr.sum td{font-weight:600;border-top:2px solid var(--line)}.heat tr.gone td:first-child{color:var(--muted)}
 .controls{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:12px 0}
 input,button.b{font:inherit;padding:7px 10px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--ink)}
 .search{position:relative;flex:1;min-width:220px;max-width:460px}.search input{width:100%}
@@ -156,10 +156,10 @@ D.byId = Object.fromEntries(D.players.map(p => [p.id, p]));
 const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const sign = (v, d=1) => (Math.abs(v) < 0.5 * 10 ** -d ? 0 : v).toFixed(d).replace(/^(?!-)/, '+');
 const fmtZ = v => v == null ? '–' : sign(v);
-const cell = (v, lim) => {
+const cell = (v, lim, d=1) => {
   if (v == null) return '<td class="z muted">–</td>';
   const share = Math.min(Math.abs(v) / lim, 1) * 70, pole = v >= 0 ? '--pw' : '--pl';
-  return `<td class="z" style="background:color-mix(in oklab,var(${pole}) ${share.toFixed(0)}%,var(--card))">${fmtZ(v)}</td>`;
+  return `<td class="z" style="background:color-mix(in oklab,var(${pole}) ${share.toFixed(0)}%,var(--card))">${sign(v, d)}</td>`;
 };
 const catVal = (i, x) => D.cats[i].made !== undefined ? (x * 100).toFixed(1) + '%' : x.toFixed(1);
 // accent- and case-insensitive, so "doncic" finds Dončić
@@ -267,6 +267,49 @@ function results() {
         `<td>${now.rank[i]}</td><td class="${dr > 0 ? 'up' : dr < 0 ? 'down' : ''}">${next.rank[i]}${dr ? ` (${dr > 0 ? '↑' : '↓'}${Math.abs(dr)})` : ''}</td></tr>`;
     }).join('') + '</tbody>';
 
+  heatmap(ids, now, next);
+}
+
+let view = 'impact';
+try { view = localStorage.getItem('lab-view') || view; } catch (e) {}
+document.querySelectorAll('#heatview button').forEach(b => b.onclick = () => {
+  view = b.dataset.view;
+  try { localStorage.setItem('lab-view', view); } catch (e) {}
+  results();
+});
+
+function heatmap(ids, now, next) {
+  document.querySelectorAll('#heatview button').forEach(b => b.classList.toggle('on', b.dataset.view === view));
+  document.getElementById('heatnote').innerHTML = view === 'impact'
+    ? `How much each player adds to <b>this</b> roster: your chance of winning each category with him minus without him
+       (percentage points, vs the league in an average week). Depends on the team around him: little where you
+       already win, a lot where you're close. Total = extra categories per week${D.weights.some(w => w === 0) ? ' (punted categories left out)' : ''}.
+       Players you remove show what they add to your current team, i.e. what you give up.`
+    : `Per-game z-scores vs this season's top 200 scorers: the same on any team (blue helps, red hurts; TO flipped).`;
+  document.getElementById('heatnote').innerHTML += ` Added players marked ＋. GP in amber = fewer than ${D.lowGp} games, so noisy.`;
+  (view === 'impact' ? impactTable : zTable)(ids, now, next);
+}
+
+function impactTable(ids, now, next) {
+  // leave-one-out: the team's win rates with everyone minus without this player
+  const marginal = (team, res, id) => {
+    const without = teamResult(D, team.filter(x => x !== id));
+    return {d: D.shown.map(i => (res.p[i] - without.p[i]) * 100), t: res.exp - without.exp};
+  };
+  const stay = ids.map(id => ({p: D.byId[id], ...marginal(ids, next, id)})).sort((a, b) => b.t - a.t);
+  const leave = drops.map(id => ({p: D.byId[id], ...marginal(D.roster, now, id)}));
+  const lim = Math.max(5, ...[...stay, ...leave].flatMap(r => r.d.map(Math.abs)));
+  const row = ({p, d, t}, cls, mark) =>
+    `<tr class="${cls}"><td>${mark}${esc(p.name)} <span class="muted">${esc(p.nba)}${p.status ? ' · ' + esc(p.status) : ''}</span></td>` +
+    `<td class="z${p.gp < D.lowGp ? ' warn' : ''}">${p.gp}</td><td class="z">${sign(t, 2)}</td>${d.map(v => cell(v, lim, 0)).join('')}</tr>`;
+  document.getElementById('heat').innerHTML =
+    `<thead><tr><th>Player</th><th>GP</th><th>Adds / wk</th>${D.shown.map(i => `<th>${esc(D.cats[i].name)}${D.weights[i] === 0 ? ' (punted)' : ''}</th>`).join('')}</tr></thead><tbody>` +
+    stay.map(r => row(r, adds.includes(r.p.id) ? 'add' : '', adds.includes(r.p.id) ? '＋ ' : '')).join('') +
+    (leave.length ? `<tr class="sum"><td colspan="${3 + D.shown.length}">Leaving: what they add to your current team</td></tr>` +
+      leave.map(r => row(r, 'gone', '− ')).join('') : '') + '</tbody>';
+}
+
+function zTable(ids) {
   const ps = ids.map(id => D.byId[id]), tot = (list, w) => list.reduce((s, p) => s + p.z.reduce((a, v, j) => a + (v ?? 0) * w[j], 0), 0);
   const wShown = D.shown.map(i => D.weights[i]);
   const sums = list => D.shown.map((_, j) => list.reduce((s, p) => s + (p.z[j] ?? 0), 0));
@@ -326,8 +369,8 @@ def render(league_name: str, updated: str, data: dict, css: str, nav: str) -> st
      {len(data['opp']) + 1} teams.</p>
   <div class="scroll"><table id="cats"></table></div>
   <h3>Roster heatmap</h3>
-  <p class="muted">Per-game z-scores vs this season's top 200 scorers (blue helps, red hurts; TO flipped). Added
-     players marked ＋. GP in amber = fewer than {data['lowGp']} games, so the numbers are noisy.</p>
+  <div class="seg" id="heatview" role="tablist"><button data-view="impact">Impact on this team</button><button data-view="z">Per-game value (z-score)</button></div>
+  <p class="muted" id="heatnote"></p>
   <div class="scroll"><table class="heat" id="heat"></table></div>
 </section>
 <footer>Only {data['me']} changes; other teams keep their current rosters, so a trade partner's loss isn't modelled.
