@@ -135,7 +135,12 @@ PAGE_CSS = """
 .heat tr.sum td{font-weight:600;border-top:2px solid var(--line)}
 .controls{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:12px 0}
 input,button.b{font:inherit;padding:7px 10px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--ink)}
-input{flex:1;min-width:220px;max-width:460px}button.b{cursor:pointer}button.b.primary{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+.search{position:relative;flex:1;min-width:220px;max-width:460px}.search input{width:100%}
+#suggest{position:absolute;z-index:5;left:0;right:0;top:calc(100% + 4px);list-style:none;margin:0;padding:4px 0;
+background:var(--card);border:1px solid var(--line);border-radius:10px;box-shadow:0 8px 24px rgb(0 0 0/.18);max-height:340px;overflow-y:auto}
+#suggest li{display:flex;flex-direction:column;padding:6px 12px;cursor:pointer}#suggest li .muted{font-size:13px}
+#suggest li[aria-selected=true],#suggest li[data-i]:hover{background:color-mix(in oklab,var(--pw) 16%,var(--card))}
+#suggest li.none{color:var(--muted);cursor:default}button.b{cursor:pointer}button.b.primary{background:var(--ink);color:var(--bg);border-color:var(--ink)}
 .cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:16px;align-items:start}
 .list{list-style:none;padding:0;margin:0;background:var(--card);border:1px solid var(--line);border-radius:10px}
 .list li{display:flex;gap:8px;align-items:center;padding:6px 10px;border-bottom:1px solid var(--line)}
@@ -156,14 +161,54 @@ const cell = (v, lim) => {
   const share = Math.min(Math.abs(v) / lim, 1) * 70, pole = v >= 0 ? '--pw' : '--pl';
   return `<td class="z" style="background:color-mix(in oklab,var(${pole}) ${share.toFixed(0)}%,var(--card))">${fmtZ(v)}</td>`;
 };
-const label = p => `${p.name} · ${p.nba} · ${p.team}`;
 const catVal = (i, x) => D.cats[i].made !== undefined ? (x * 100).toFixed(1) + '%' : x.toFixed(1);
+// accent- and case-insensitive, so "doncic" finds Dončić
+const norm = s => String(s).normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
 
 let adds = [], drops = [];
-const input = document.getElementById('who'), msg = document.getElementById('addmsg');
-const byLabel = Object.fromEntries(D.players.filter(p => !p.mine).map(p => [label(p), p]));
-document.getElementById('pl').innerHTML = D.players.filter(p => !p.mine)
-  .sort((a, b) => a.name.localeCompare(b.name)).map(p => `<option value="${esc(label(p))}">`).join('');
+const input = document.getElementById('who'), msg = document.getElementById('addmsg'), sug = document.getElementById('suggest');
+const others = D.players.filter(p => !p.mine).map(p => ({p, name: norm(p.name), all: norm(`${p.name} ${p.nba} ${p.team}`)}));
+let matches = [], active = 0;
+
+function search(q) {
+  // every typed word must appear somewhere (name, NBA team or fantasy team); name prefix matches first
+  const words = norm(q).split(/\s+/).filter(Boolean);
+  if (!words.length) return [];
+  const score = o => o.name.startsWith(words[0]) ? 0 : o.name.split(/[\s'.-]+/).some(w => w.startsWith(words[0])) ? 1 : 2;
+  return others.filter(o => !adds.includes(o.p.id) && words.every(w => o.all.includes(w)))
+    .sort((a, b) => score(a) - score(b) || b.p.gp - a.p.gp || a.p.name.localeCompare(b.p.name)).slice(0, 8).map(o => o.p);
+}
+function showSuggest() {
+  matches = search(input.value); active = Math.min(active, Math.max(matches.length - 1, 0));
+  input.setAttribute('aria-expanded', matches.length ? 'true' : 'false');
+  sug.hidden = !matches.length && !input.value.trim();
+  sug.innerHTML = matches.length ? matches.map((p, i) =>
+    `<li role="option" id="s${i}" data-i="${i}" aria-selected="${i === active}"><b>${esc(p.name)}</b>` +
+    `<span class="muted">${esc(p.nba)} · ${p.team === 'FA' ? 'free agent' : esc(p.team)} · ` +
+    `<span class="${p.gp < D.lowGp ? 'warn' : ''}">${p.gp} GP</span>${p.status ? ' · ' + esc(p.status) : ''}</span></li>`).join('')
+    : `<li class="none">No player matches “${esc(input.value.trim())}”</li>`;
+  input.setAttribute('aria-activedescendant', matches.length ? `s${active}` : '');
+}
+function pick(p) {
+  if (!p) return;
+  if (!adds.includes(p.id)) adds.push(p.id);
+  input.value = ''; msg.textContent = ''; showSuggest(); draw(); input.focus();
+}
+input.oninput = () => { active = 0; showSuggest(); };
+input.onfocus = showSuggest;
+input.onblur = () => setTimeout(() => { sug.hidden = true; input.setAttribute('aria-expanded', 'false'); }, 150);
+input.onkeydown = e => {
+  if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+    e.preventDefault();
+    if (matches.length) { active = (active + (e.key === 'ArrowDown' ? 1 : -1) + matches.length) % matches.length; showSuggest(); }
+  } else if (e.key === 'Enter') { e.preventDefault(); pick(matches[active]); }
+  else if (e.key === 'Escape') { sug.hidden = true; }
+};
+sug.onmousedown = e => { const li = e.target.closest('li[data-i]'); if (li) { e.preventDefault(); pick(matches[+li.dataset.i]); } };
+document.getElementById('add').onclick = () => {
+  if (matches.length) pick(matches[active]);
+  else msg.textContent = input.value.trim() ? 'Pick a player from the suggestions.' : 'Type part of a name first.';
+};
 
 function readHash() {
   const h = new URLSearchParams(location.hash.slice(1)), ids = k => (h.get(k) || '').split(',').filter(Boolean).map(Number);
@@ -174,14 +219,6 @@ function writeHash() {
   const h = adds.length || drops.length ? `#add=${adds.join(',')}&drop=${drops.join(',')}` : location.pathname + location.search;
   history.replaceState(null, '', h);
 }
-function add() {
-  const v = input.value.trim(), p = byLabel[v] || D.players.find(x => !x.mine && x.name.toLowerCase() === v.toLowerCase());
-  if (!p) { msg.textContent = v ? `No player matches “${v}”. Pick one from the list.` : ''; return; }
-  if (!adds.includes(p.id)) adds.push(p.id);
-  input.value = ''; msg.textContent = ''; draw();
-}
-document.getElementById('add').onclick = add;
-input.onkeydown = e => { if (e.key === 'Enter') add(); };
 document.getElementById('reset').onclick = () => { adds = []; drops = []; draw(); };
 
 function lists() {
@@ -265,8 +302,11 @@ def render(league_name: str, updated: str, data: dict, css: str, nav: str) -> st
 <section>
   <h2>Build the team</h2>
   <div class="controls">
-    <input id="who" list="pl" placeholder="Type a player's name…" autocomplete="off" aria-label="Player to add">
-    <datalist id="pl"></datalist>
+    <div class="search">
+      <input id="who" placeholder="Type part of a name or team…" autocomplete="off" spellcheck="false"
+             role="combobox" aria-expanded="false" aria-controls="suggest" aria-autocomplete="list" aria-label="Player to add">
+      <ul id="suggest" role="listbox" hidden></ul>
+    </div>
     <button class="b primary" id="add">Add</button><button class="b" id="reset">Reset</button>
     <span class="muted" id="addmsg"></span>
   </div>
