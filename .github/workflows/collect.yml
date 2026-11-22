@@ -2,8 +2,9 @@ name: Collect ESPN data and publish report
 
 on:
   schedule:
-    - cron: "30 6 * * *"   # 06:30 UTC: night's games final (late West Coast tips end ~05:00-06:00 UTC);
-                           # daily.json is up before 8am in Ireland (08:00 UTC winter, 07:00 UTC summer)
+    - cron: "30 0 * * *"   # 00:30 UTC, but GitHub starts scheduled runs 7-10h late on this repo
+                           # (Nov 2026: 13:45-16:25 for a 06:30 cron), so it lands ~07:30-10:30 UTC,
+                           # after the night's games are final (late West Coast tips end ~05:00-06:00 UTC)
   workflow_dispatch:
   push:
     branches: [main]
